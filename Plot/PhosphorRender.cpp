@@ -1,4 +1,5 @@
 #include "PhosphorRender.h"
+#include <algorithm>
 #include <cmath>
 
 #include <QtQuick/qsgnode.h>
@@ -14,7 +15,9 @@ public:
         return
         "attribute highp vec4 vertex;          \n"
         "uniform highp mat4 matrix;            \n"
+        "uniform highp float pointSize;        \n"
         "void main() {                         \n"
+        "    gl_PointSize = pointSize;          \n"
         "    gl_Position = matrix * vertex;    \n"
         "}";
     }
@@ -42,6 +45,7 @@ public:
     {
         QSGMaterialShader::initialize();
         m_id_matrix = program()->uniformLocation("matrix");
+        m_id_pointSize = program()->uniformLocation("pointSize");
         m_id_opacity = program()->uniformLocation("opacity");
         m_id_color = program()->uniformLocation("color");
         m_glFuncs = QOpenGLContext::currentContext()->functions();
@@ -56,6 +60,7 @@ public:
 
 private:
     int m_id_matrix;
+    int m_id_pointSize;
     int m_id_opacity;
     int m_id_color;
     QOpenGLFunctions *m_glFuncs;
@@ -80,6 +85,7 @@ void Shader::updateState(const RenderState &state, QSGMaterial *newMaterial, QSG
 
     Material* m = static_cast<Material*>(newMaterial);
     program()->setUniformValue(m_id_matrix, state.combinedMatrix()*m->transformation);
+    program()->setUniformValue(m_id_pointSize, std::max(1.0f, m->pointSize));
 
     if (state.isOpacityDirty()) {
         program()->setUniformValue(m_id_opacity, state.opacity());
@@ -107,26 +113,38 @@ PhosphorRender::~PhosphorRender()
 QSGNode *PhosphorRender::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
     if (!m_ybuffer) {
-        return 0;
+        return nullptr;
     }
 
-    QSGGeometryNode *node = 0;
-    QSGGeometry *geometry = 0;
-    Material *material = 0;
+    const QRectF bounds = boundingRect();
+    if (!std::isfinite(m_xmin) || !std::isfinite(m_xmax)
+            || !std::isfinite(m_ymin) || !std::isfinite(m_ymax)
+            || m_xmax <= m_xmin || m_ymax <= m_ymin
+            || !std::isfinite(bounds.width()) || !std::isfinite(bounds.height())
+            || bounds.width() <= 0.0 || bounds.height() <= 0.0) {
+        return oldNode;
+    }
 
-    unsigned n_points;
-
+    const std::vector<float> yData = m_ybuffer->snapshot();
+    std::vector<float> xData;
     if (m_xbuffer) {
-        n_points = std::min(m_xbuffer->size(), m_ybuffer->size());
-    } else {
-        n_points = m_ybuffer->countPointsBetween(m_xmin, m_xmax);
+        xData = m_xbuffer->snapshot();
     }
 
-    n_points = std::min(n_points,(unsigned) 65767);
+    unsigned nPoints = m_xbuffer
+        ? static_cast<unsigned>(std::min(xData.size(), yData.size()))
+        : m_ybuffer->countPointsBetween(m_xmin, m_xmax);
+    nPoints = std::min(nPoints, 65767U);
+    if (nPoints == 0) {
+        return nullptr;
+    }
 
+    QSGGeometryNode* node = nullptr;
+    QSGGeometry* geometry = nullptr;
+    Material* material = nullptr;
     if (!oldNode) {
         node = new QSGGeometryNode;
-        geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), n_points);
+        geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), nPoints);
         geometry->setDrawingMode(GL_POINTS);
         node->setGeometry(geometry);
         node->setFlag(QSGNode::OwnsGeometry);
@@ -135,31 +153,27 @@ QSGNode *PhosphorRender::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
         node->setMaterial(material);
         node->setFlag(QSGNode::OwnsMaterial);
     } else {
-        node = static_cast<QSGGeometryNode *>(oldNode);
+        node = static_cast<QSGGeometryNode*>(oldNode);
         geometry = node->geometry();
-        geometry->allocate(n_points);
-        geometry->setLineWidth(m_pointSize);
+        geometry->allocate(nPoints);
         material = static_cast<Material*>(node->material());
     }
 
-    QRectF bounds = boundingRect();
-
     material->transformation.setToIdentity();
-    material->transformation.scale(bounds.width()/(m_xmax - m_xmin), bounds.height()/(m_ymin - m_ymax));
+    material->transformation.scale(bounds.width() / (m_xmax - m_xmin),
+                                  bounds.height() / (m_ymin - m_ymax));
     material->transformation.translate(-m_xmin, -m_ymax);
-
-    material->pointSize = m_pointSize;
+    material->pointSize = std::max(1.0, m_pointSize);
     material->color = m_color;
 
-    auto verticies = geometry->vertexDataAsPoint2D();
+    QSGGeometry::Point2D* vertices = geometry->vertexDataAsPoint2D();
     if (m_xbuffer) {
-        for (unsigned i=0; i<n_points; i++) {
-            verticies[i].set(m_xbuffer->get(i), m_ybuffer->get(i));
+        for (unsigned i = 0; i < nPoints; ++i) {
+            vertices[i].set(xData[i], yData[i]);
         }
     } else {
-        m_ybuffer->toVertexData(m_xmin, m_xmax, verticies, n_points);
+        m_ybuffer->toVertexData(m_xmin, m_xmax, vertices, nPoints);
     }
     node->markDirty(QSGNode::DirtyGeometry | QSGNode::DirtyMaterial);
-
     return node;
 }

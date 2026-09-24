@@ -1,6 +1,3 @@
-/* From:
-   https://wiki.qt.io/Download_Data_from_URL
-*/
 #ifndef FILEDOWNLOADER_H
 #define FILEDOWNLOADER_H
 
@@ -12,21 +9,25 @@
 
 class FileDownloader : public QObject
 {
- Q_OBJECT
- public:
-  explicit FileDownloader(QUrl imageUrl, QObject *parent = 0);
-  virtual ~FileDownloader();
-  QByteArray downloadedData() const;
+    Q_OBJECT
 
- signals:
-  void downloaded();
+public:
+    explicit FileDownloader(const QUrl& url, QObject* parent = nullptr);
+    ~FileDownloader() override;
 
- private slots:
-  void fileDownloaded(QNetworkReply* pReply);
+    QByteArray downloadedData() const;
 
- private:
-  QNetworkAccessManager m_WebCtrl;
-  QByteArray m_DownloadedData;
+signals:
+    void downloaded();
+    void failed(const QString& error);
+
+private slots:
+    void fileDownloaded(QNetworkReply* reply);
+
+private:
+    QNetworkAccessManager m_webCtrl;
+    QByteArray m_downloadedData;
+    bool m_abortedForSize;
 };
 
 #endif // FILEDOWNLOADER_H

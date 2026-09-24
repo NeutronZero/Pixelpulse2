@@ -4,9 +4,9 @@ Item {
   id: overlay
   anchors.fill: parent
 
-  property real sampleTick: 1/controller.sampleRate
-  property real period: signal.src.period * sampleTick
-  property real phase: ((signal.src.phase + controller.delaySampleCount) % signal.src.period) * sampleTick
+  property real sampleTick: controller.sampleRate > 0 ? 1 / controller.sampleRate : 1
+  property real period: signal.src.period > 0 ? signal.src.period * sampleTick : sampleTick
+  property real phase: signal.src.period > 0 ? ((signal.src.phase + controller.delaySampleCount) % signal.src.period) * sampleTick : 0
 
   function phaseZeroNearCenter() {
     if (dragging && relX != null) return relX
@@ -31,12 +31,14 @@ Item {
     dragging = null;
   }
 
-  function constrainInterval(value, center, radius){
-    if (Math.abs(value) < radius){
+   function constrainInterval(value, center, radius){
+     if (!isFinite(value))
+         return center;
+     if (Math.abs(value) < radius){
       if (value < center){ value = -radius; }
       if (value >= center) { value = radius; }
     }
-    return value;
+    return Math.max(radius, value);
   }
 
   function mapY(pos) {
@@ -58,12 +60,15 @@ Item {
 
     dragOn: overlay
     onPressed: overlay.dragStart('d1')
-    onReleased: {
-      signal.src.period = constrainInterval(signal.src.period, controller.sampleRate / controller.minOutSignalFreq, controller.sampleRate / controller.maxOutSignalFreq);
-      overlay.dragEnd();
-    }
-    onDrag: {
-      var lx = xaxis.pxToX(Math.max(0, Math.min(pos.x, xaxis.width)));
+     onReleased: {
+       if (controller.minOutSignalFreq > 0 && controller.maxOutSignalFreq > 0)
+           signal.src.period = constrainInterval(signal.src.period, controller.sampleRate / controller.minOutSignalFreq, controller.sampleRate / controller.maxOutSignalFreq);
+       overlay.dragEnd();
+     }
+     onDrag: {
+       if (!(controller.minOutSignalFreq > 0 && controller.maxOutSignalFreq > 0))
+           return;
+       var lx = xaxis.pxToX(Math.max(0, Math.min(pos.x, xaxis.width)));
       var oldPeriod = signal.src.period;
       var newPeriod = (lx - relX) / sampleTick * periodDivisor();
       if (pos.modifiers & Qt.ControlModifier) {

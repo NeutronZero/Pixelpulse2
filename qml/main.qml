@@ -3,7 +3,6 @@ import QtQuick.Window 2.0
 import QtQuick.Layouts 1.0
 import QtQuick.Controls 1.0
 import QtGraphicalEffects 1.0
-import "sesssave.js" as StateSave
 
 ApplicationWindow {
     width: 1024
@@ -20,7 +19,6 @@ ApplicationWindow {
     property alias plotsVisible: toolbar.plotsVisible
     property alias contentVisible: toolbar.contentVisible
     property alias deviceMngrVisible: toolbar.deviceMngrVisible
-    property var lastConfig: {}
 /*Color control properties*/
     property color xyplotColor: Qt.rgba(0.12, 0.12, 0.12, 0.0 )
     property color gridAxesColor: '#222'
@@ -112,13 +110,7 @@ ApplicationWindow {
                                 device: model
                                 currentIndex: index
                             }
-                            onItemAdded: {
-                                if ( lastConfig ) {
-                                    if ((Object.keys(lastConfig).length) > 0) {
-                                        StateSave.restoreState(lastConfig);
-                                    }
-                                }
-                            }
+
                         }
                     }
                 }

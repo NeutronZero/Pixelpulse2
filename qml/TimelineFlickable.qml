@@ -21,15 +21,19 @@ MouseArea {
       return boundMin + (timeline_flickable.contentX + px) / xscale
     }
 
-    function setVisible(min, max) {
+  function setVisible(min, max) {
+      if (max <= min)
+          return;
       xscale = timeline_flickable.width / (max - min)
       timeline_flickable.contentX = xscale*(min - boundMin)
-    }
+  }
 
-    function setBounds(min, max) {
+  function setBounds(min, max) {
+      if (max <= min)
+          return;
       boundMin = min
       boundMax = max
-    }
+  }
 
     onBoundMaxChanged: {
       if (boundMax < visibleMax || timeline_flickable.atXEnd) {
@@ -38,9 +42,12 @@ MouseArea {
     }
 
     onWheel: {
+        var span = boundMax - boundMin;
+        if (span <= 0)
+            return;
         var s = Math.pow(1.15, wheel.angleDelta.y/120)
         var oldScale = xscale
-        var minScale = timeline_flickable.width/(boundMax - boundMin)
+        var minScale = timeline_flickable.width/span
         xscale = Math.min(Math.max(xscale*s, minScale), maxScale)
 
         timeline_flickable.contentX = (xscale / oldScale) * (timeline_flickable.contentX + wheel.x) - wheel.x
@@ -48,7 +55,10 @@ MouseArea {
     }
 
     onWidthChanged: {
-        var minScale = timeline_flickable.width/(boundMax - boundMin)
+        var span = boundMax - boundMin;
+        if (span <= 0)
+            return;
+        var minScale = timeline_flickable.width/span
         xscale = Math.min(Math.max(xscale, minScale), maxScale)
         timeline_flickable.returnToBounds()
     }

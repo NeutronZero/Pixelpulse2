@@ -1,16 +1,21 @@
 #pragma once
-#include <QtQuick/QQuickItem>
+
+#include <QSet>
 #include <QTimer>
-#include <QThread>
+#include <QtQuick/QQuickItem>
+
 #include <libsmu/libsmu.hpp>
-#include <memory>
-#include "utils/filedownloader.h"
-#include <iostream>
-#include <QTime>
-#include <cmath>
+
+#include <array>
+#include <chrono>
 #include <fstream>
-#include <QThreadPool>
-#include <QtConcurrent/QtConcurrent>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "utils/filedownloader.h"
 
 class SessionItem;
 class DeviceItem;
@@ -19,48 +24,47 @@ class SignalItem;
 class ModeItem;
 class SrcItem;
 class TimerItem;
-class BufferChanger;
 class FloatBuffer;
 class DataLogger;
 
-/// SessionItem is the primary object in Pixelpulse2
-/// It abstracts over a libsmu session, exposing relevant parameters to QML.
-class SessionItem : public QObject {
+class SessionItem : public QObject
+{
     Q_OBJECT
     Q_PROPERTY(QQmlListProperty<DeviceItem> devices READ getDevices NOTIFY devicesChanged)
-    Q_PROPERTY(bool active READ getActive NOTIFY activeChanged);
-    Q_PROPERTY(unsigned sampleRate MEMBER m_sample_rate NOTIFY sampleRateChanged);
-    Q_PROPERTY(unsigned sampleCount MEMBER m_sample_count NOTIFY sampleCountChanged);
-    Q_PROPERTY(double sampleTime MEMBER m_sample_time NOTIFY sampleTimeChanged);
-    Q_PROPERTY(unsigned logging MEMBER m_logging NOTIFY loggingChanged);
-    Q_PROPERTY(int activeDevices READ getActiveDevices NOTIFY activeChanged);
-    Q_PROPERTY(int availableDevices READ getAvailableDevices NOTIFY devicesChanged);
+    Q_PROPERTY(bool active READ getActive NOTIFY activeChanged)
+    Q_PROPERTY(unsigned sampleRate MEMBER m_sample_rate NOTIFY sampleRateChanged)
+    Q_PROPERTY(unsigned sampleCount MEMBER m_sample_count NOTIFY sampleCountChanged)
+    Q_PROPERTY(double sampleTime MEMBER m_sample_time NOTIFY sampleTimeChanged)
+    Q_PROPERTY(unsigned logging MEMBER m_logging NOTIFY loggingChanged)
+    Q_PROPERTY(int activeDevices READ getActiveDevices NOTIFY activeChanged)
+    Q_PROPERTY(int availableDevices READ getAvailableDevices NOTIFY devicesChanged)
     Q_PROPERTY(int queueSize MEMBER m_queue_size CONSTANT)
 
 public:
     SessionItem();
-    ~SessionItem();
+    ~SessionItem() override;
+
     Q_INVOKABLE void openAllDevices();
     Q_INVOKABLE void closeAllDevices();
-
+    Q_INVOKABLE void resumeDeviceScanning();
     Q_INVOKABLE void start(bool continuous);
-    Q_INVOKABLE void cancel();
+    Q_INVOKABLE bool cancel();
     Q_INVOKABLE void restart();
-    int getAvailableDevices() { return m_session->m_available_devices.size(); }
-    int getActiveDevices() { return m_session->m_devices.size(); }
+    Q_INVOKABLE void toggleLogging();
+
+    int getAvailableDevices() const;
+    int getActiveDevices() const;
+    bool isContinuous() const;
+    bool getActive() const;
+    QQmlListProperty<DeviceItem> getDevices();
 
     Q_INVOKABLE void updateMeasurements();
     Q_INVOKABLE void updateAllMeasurements();
 
-    Q_INVOKABLE void downloadFromUrl(QString url);
-    Q_INVOKABLE QString flash_firmware(QString url);
+    Q_INVOKABLE void downloadFromUrl(const QString& url);
+    Q_INVOKABLE QString flash_firmware(const QString& url);
     Q_INVOKABLE QString getTmpPathForFirmware();
     Q_INVOKABLE int programmingModeDeviceExists();
-
-    bool isContinuous(){return m_continuous;}
-    bool getActive() { return m_active; }
-    QQmlListProperty<DeviceItem> getDevices() { return QQmlListProperty<DeviceItem>(this, m_devices); }
-    static void usb_handle_thread_method(SessionItem *session_item);
 
 signals:
     void devicesChanged();
@@ -73,11 +77,13 @@ signals:
     void attached(smu::Device* device);
     void detached(smu::Device* device);
     void firmwareDownloaded();
+    void firmwareDownloadFailed(const QString& error);
 
 protected slots:
     void onFinished();
     void onAttached(smu::Device* device);
     void onDetached(smu::Device* device);
+    void scanDevices();
     void handleDownloadedFirmware();
     void onSampleCountChanged();
     void onSampleTimeChanged();
@@ -86,67 +92,86 @@ protected slots:
     void beginNewSweep();
 
 protected:
-    smu::Session* m_session;
+    void discardDevice(smu::Device* device);
+    void reconcileUnownedDevices(const std::vector<smu::Device*>& previousDevices);
+
+    std::unique_ptr<smu::Session> m_session;
     bool m_active;
     bool m_continuous;
     unsigned m_sample_rate;
     unsigned m_sample_count;
     double m_sample_time;
     unsigned m_queue_size;
-    DataLogger *m_data_logger;
+    DataLogger* m_data_logger;
     unsigned m_logging;
-    FileDownloader *m_firmware_fd;
-    QList<DeviceItem *> m_devices;
+    FileDownloader* m_firmware_fd;
+    bool m_scan_enabled;
+    QSet<smu::Device*> m_retired_devices;
+    QList<DeviceItem*> m_devices;
     QTimer timer;
-    QTimer *sweepTimer;
+    QTimer* sweepTimer;
+    QTimer deviceScanTimer;
 };
 
-
-/// DeviceItem abstracts over a LibSMU Device exposing relevant parameters to QML
-class DeviceItem : public QObject {
+class DeviceItem : public QObject
+{
     Q_OBJECT
-    Q_PROPERTY(QQmlListProperty<ChannelItem> channels READ getChannels CONSTANT);
-    Q_PROPERTY(QString label READ getLabel CONSTANT);
-    Q_PROPERTY(QString FWVer READ getFWVer CONSTANT);
-    Q_PROPERTY(QString HWVer READ getHWVer CONSTANT);
-    Q_PROPERTY(int DefaultRate READ getDefaultRate CONSTANT);
-    Q_PROPERTY(QString UUID READ getDevSN CONSTANT);
+    Q_PROPERTY(QQmlListProperty<ChannelItem> channels READ getChannels CONSTANT)
+    Q_PROPERTY(QString label READ getLabel CONSTANT)
+    Q_PROPERTY(QString FWVer READ getFWVer CONSTANT)
+    Q_PROPERTY(QString HWVer READ getHWVer CONSTANT)
+    Q_PROPERTY(int DefaultRate READ getDefaultRate CONSTANT)
+    Q_PROPERTY(QString UUID READ getDevSN CONSTANT)
 
 public:
-    DeviceItem(SessionItem*, smu::Device*);
-    QQmlListProperty<ChannelItem> getChannels() { return QQmlListProperty<ChannelItem>(this, m_channels); }
-    QString getLabel() { return QString(m_device->info()->label); }
-    QString getFWVer() { return QString::fromStdString(m_device->m_fwver); }
-    QString getHWVer() { return QString::fromStdString(m_device->m_hwver); }
-    QString getDevSN() { return QString::fromStdString(m_device->m_serial); }
-    int getDefaultRate() { return m_device->get_default_rate(); }
-    friend class DataLogger;
-    Q_INVOKABLE int ctrl_transfer( int x, int y, int z) { return m_device->ctrl_transfer(0x40, x, y, z, 0, 0, 100);}
+    DeviceItem(SessionItem* parent, smu::Device* device);
+
+    QQmlListProperty<ChannelItem> getChannels();
+    QString getLabel() const;
+    QString getFWVer() const;
+    QString getHWVer() const;
+    QString getDevSN() const;
+    int getDefaultRate() const;
+
+    Q_INVOKABLE int ctrl_transfer(int x, int y, int z);
     Q_INVOKABLE void blinkLeds();
 
-    size_t samplesAdded() { return m_samples_added; }
-    void setSamplesAdded(size_t count) { m_samples_added = count; }
-    void write(ChannelItem* chn = nullptr);
+    size_t samplesAdded() const;
+    void setSamplesAdded(size_t count);
+    bool write(ChannelItem* channel = nullptr);
+    smu::Device* rawDevice() const;
 
 protected:
     smu::Device* const m_device;
     QList<ChannelItem*> m_channels;
+    QTimer ledTimer;
+    unsigned m_led_step;
+    friend class DataLogger;
     friend class SessionItem;
+
+private slots:
+    void advanceLed();
+
+private:
+    void setLed(unsigned value);
+
+protected:
     size_t m_samples_added;
 };
 
-class ChannelItem : public QObject {
+class ChannelItem : public QObject
+{
     Q_OBJECT
-    Q_PROPERTY(QQmlListProperty<SignalItem> signals READ getSignals CONSTANT);
-    Q_PROPERTY(QString label READ getLabel CONSTANT);
-    Q_PROPERTY(unsigned mode MEMBER m_mode NOTIFY modeChanged);
+    Q_PROPERTY(QQmlListProperty<SignalItem> signals READ getSignals CONSTANT)
+    Q_PROPERTY(QString label READ getLabel CONSTANT)
+    Q_PROPERTY(unsigned mode MEMBER m_mode NOTIFY modeChanged)
 
 public:
-    ChannelItem(DeviceItem*, smu::Device*, unsigned index);
-    QQmlListProperty<SignalItem> getSignals() { return QQmlListProperty<SignalItem>(this, m_signals); }
-    QString getLabel() const { return QString(m_device->channel_info(m_index)->label); }
+    ChannelItem(DeviceItem* parent, smu::Device* device, unsigned index);
 
-    void buildTxBuffer();
+    QQmlListProperty<SignalItem> getSignals();
+    QString getLabel() const;
+    bool buildTxBuffer();
 
 signals:
     void modeChanged(unsigned mode);
@@ -155,12 +180,10 @@ protected:
     smu::Device* const m_device;
     const unsigned m_index;
     unsigned m_mode;
-
-    QList<ModeItem *> m_modes;
+    QList<ModeItem*> m_modes;
     QList<SignalItem*> m_signals;
-
     std::vector<float> m_tx_data;
-    TimerItem *timer;
+    TimerItem* timer;
 
     friend class SessionItem;
     friend class DeviceItem;
@@ -168,59 +191,48 @@ protected:
     friend class TimerItem;
 };
 
-/// Abstracts over a LibSMU Signal and the BufferItem used for rendering data
-class SignalItem : public QObject {
+class SignalItem : public QObject
+{
     Q_OBJECT
-    Q_PROPERTY(FloatBuffer* buffer READ getBuffer CONSTANT);
-    Q_PROPERTY(QString label READ getLabel CONSTANT);
-    Q_PROPERTY(double min READ getMin CONSTANT);
-    Q_PROPERTY(double max READ getMax CONSTANT);
-    Q_PROPERTY(double resolution READ getResolution CONSTANT);
-    Q_PROPERTY(SrcItem* src READ getSrc CONSTANT);
-    Q_PROPERTY(bool isOutput READ getIsOutput NOTIFY isOutputChanged);
-    Q_PROPERTY(bool isInput READ getIsInput NOTIFY isInputChanged);
-    Q_PROPERTY(double measurement READ getMeasurement NOTIFY measurementChanged);
-    Q_PROPERTY(double peak_to_peak READ getPeak NOTIFY peakChanged);
-    Q_PROPERTY(double rms READ getRms NOTIFY rmsChanged);
-    Q_PROPERTY(double mean READ getMean NOTIFY meanChanged);
+    Q_PROPERTY(FloatBuffer* buffer READ getBuffer CONSTANT)
+    Q_PROPERTY(QString label READ getLabel CONSTANT)
+    Q_PROPERTY(double min READ getMin CONSTANT)
+    Q_PROPERTY(double max READ getMax CONSTANT)
+    Q_PROPERTY(double resolution READ getResolution CONSTANT)
+    Q_PROPERTY(SrcItem* src READ getSrc CONSTANT)
+    Q_PROPERTY(bool isOutput READ getIsOutput NOTIFY isOutputChanged)
+    Q_PROPERTY(bool isInput READ getIsInput NOTIFY isInputChanged)
+    Q_PROPERTY(double measurement READ getMeasurement NOTIFY measurementChanged)
+    Q_PROPERTY(double peak_to_peak READ getPeak NOTIFY peakChanged)
+    Q_PROPERTY(double rms READ getRms NOTIFY rmsChanged)
+    Q_PROPERTY(double mean READ getMean NOTIFY meanChanged)
 
 public:
-    SignalItem(ChannelItem*, int index, smu::Signal*);
-    FloatBuffer* getBuffer() const { return m_buffer; }
-    QString getLabel() const { return QString(m_signal->info()->label); }
-    double getMin() const { return m_signal->info()->min; }
-    double getMax() const { return m_signal->info()->max; }
-    double getResolution() const { return m_signal->info()->resolution; }
-    SrcItem* getSrc() const { return m_src; }
-    bool getIsOutput() const {
-        return m_signal->info()->outputModes & (1<<m_channel->m_mode);
-    }
-    bool getIsInput() const {
-        return m_signal->info()->inputModes & (1<<m_channel->m_mode);
-    }
-    double getMeasurement() {
-        return m_measurement;
-    }
-    double getPeak(){
-        return m_peak_to_peak;
-    }
-    double getRms() {
-        return m_rms;
-    }
-    double getMean() {
-	return m_mean;
-    }
+    SignalItem(ChannelItem* parent, int index, smu::Signal* signal);
+
+    FloatBuffer* getBuffer() const;
+    QString getLabel() const;
+    double getMin() const;
+    double getMax() const;
+    double getResolution() const;
+    SrcItem* getSrc() const;
+    bool getIsOutput() const;
+    bool getIsInput() const;
+    double getMeasurement() const;
+    double getPeak() const;
+    double getRms() const;
+    double getMean() const;
 
 signals:
-    void isOutputChanged(bool);
-    void isInputChanged(bool);
-    void measurementChanged(double);
-    void peakChanged(double);
-    void rmsChanged(double);
-    void meanChanged(double);
+    void isOutputChanged(bool value);
+    void isInputChanged(bool value);
+    void measurementChanged(double value);
+    void peakChanged(double value);
+    void rmsChanged(double value);
+    void meanChanged(double value);
 
 protected slots:
-    void onParentModeChanged(int);
+    void onParentModeChanged(int mode);
 
 protected:
     int const m_index;
@@ -232,6 +244,7 @@ protected:
     double m_peak_to_peak;
     double m_rms;
     double m_mean;
+
     friend class SessionItem;
     friend class ChannelItem;
     friend class SrcItem;
@@ -243,35 +256,29 @@ protected:
     void updateRms();
 };
 
-class SrcItem : public QObject {
+class SrcItem : public QObject
+{
     Q_OBJECT
-    Q_PROPERTY(QString src   MEMBER m_src     NOTIFY srcChanged);
-    Q_PROPERTY(double v1     MEMBER m_v1      NOTIFY v1Changed);
-    Q_PROPERTY(double v2     MEMBER m_v2      NOTIFY v2Changed);
-    Q_PROPERTY(double period MEMBER m_period  NOTIFY periodChanged);
-    Q_PROPERTY(double phase  MEMBER m_phase   WRITE setPhase NOTIFY phaseChanged);
-    Q_PROPERTY(double duty   MEMBER m_duty    NOTIFY dutyChanged);
+    Q_PROPERTY(QString src MEMBER m_src NOTIFY srcChanged)
+    Q_PROPERTY(double v1 MEMBER m_v1 NOTIFY v1Changed)
+    Q_PROPERTY(double v2 MEMBER m_v2 NOTIFY v2Changed)
+    Q_PROPERTY(double period MEMBER m_period NOTIFY periodChanged)
+    Q_PROPERTY(double phase MEMBER m_phase WRITE setPhase NOTIFY phaseChanged)
+    Q_PROPERTY(double duty MEMBER m_duty NOTIFY dutyChanged)
 
 public:
-    SrcItem(SignalItem*);
+    explicit SrcItem(SignalItem* parent);
     Q_INVOKABLE void update();
-    void setPhase(double phase) {
-        if (m_src.compare("constant") != 0){
-            phase = fmod(fmod(phase, m_period)+m_period, m_period);
-            if (phase != m_phase) {
-                m_phase = phase;
-                phaseChanged(m_phase);
-            }
-        }
-    }
+
+    void setPhase(double phase);
 
 signals:
-    void srcChanged(QString);
-    void v1Changed(double);
-    void v2Changed(double);
-    void periodChanged(double);
-    void phaseChanged(double);
-    void dutyChanged(double);
+    void srcChanged(QString value);
+    void v1Changed(double value);
+    void v2Changed(double value);
+    void periodChanged(double value);
+    void phaseChanged(double value);
+    void dutyChanged(double value);
     void changed();
 
 protected:
@@ -281,81 +288,65 @@ protected:
     double m_period;
     double m_phase;
     double m_duty;
-
     SignalItem* m_parent;
+
     friend class TimerItem;
 };
 
-class TimerItem : public QObject{
+class TimerItem : public QObject
+{
     Q_OBJECT
-private:
-    ChannelItem *channel;
-    DeviceItem *device;
-    SessionItem *session;
-    QTimer *changeBufferTimer;
-    BufferChanger *bc;
-    QThread *thread;
-    bool modified;
 
 public:
-    TimerItem(ChannelItem *channel,DeviceItem *dev);
-protected:
-    friend class DeviceItem;
-    friend class SrcItem;
-    friend class SignalItem;
-    friend class ChannelItem;
+    TimerItem(ChannelItem* channel, DeviceItem* device);
+
 public slots:
     void parameterChanged();
+
 private slots:
     void needChangeBuffer();
-    void clean();
+
+private:
+    ChannelItem* m_channel;
+    DeviceItem* m_device;
+    SessionItem* m_session;
+    QTimer m_changeBufferTimer;
 };
 
-class BufferChanger :public QObject{
+class DataLogger : public QObject
+{
     Q_OBJECT
-private:
-    ChannelItem *channel;
-    DeviceItem *device;
+
 public:
-    BufferChanger(ChannelItem *chan,DeviceItem *dev);
-    ~BufferChanger(){}
-protected slots:
-    void changeBuffer();
+    explicit DataLogger(float sample_time, QObject* parent = nullptr);
+    ~DataLogger() override;
+
+    void addData(DeviceItem* device, const std::array<float, 4>& samples);
+    void addBulkData(DeviceItem* device, const std::vector<std::array<float, 4>>& samples);
+    void clearData();
+    void printData(DeviceItem* device);
+    void setSampleTime(float sample_time);
+
+private:
+    void doAddBulkData(DeviceItem* device, const std::vector<std::array<float, 4>>& samples);
+    void printDataUnlocked(DeviceItem* device);
+    std::array<float, 4> computeAverageUnlocked(DeviceItem* device) const;
+    void updateMinimum(DeviceItem* device, const std::array<float, 4>& samples);
+    void updateMaximum(DeviceItem* device, const std::array<float, 4>& samples);
+    void updateSum(DeviceItem* device, const std::array<float, 4>& samples);
+    void resetData(DeviceItem* device);
+    static std::string modifyDateTime(const std::string& date_time);
+    void createLoggingFolder();
+
+    float sampleTime;
+    std::ofstream fileStream;
+    std::map<DeviceItem*, int> dataCounter;
+    std::map<DeviceItem*, std::array<float, 4>> minimum;
+    std::map<DeviceItem*, std::array<float, 4>> maximum;
+    std::map<DeviceItem*, std::array<float, 4>> sum;
+    std::chrono::time_point<std::chrono::system_clock> startTime;
+    std::chrono::time_point<std::chrono::system_clock> lastLog;
+    std::mutex m_logMutex;
 };
 
 void registerTypes();
-
-class DataLogger: public QObject {
-    Q_OBJECT
-public:
-    DataLogger(float sampleTime, QObject* parent = nullptr);
-    void addData(DeviceItem*, std::array < float, 4 >);
-    void addBulkData(DeviceItem*, std::vector < std::array < float, 4 > >);
-    double computeAverage(DeviceItem*, int channel);
-    double computeMinimum(DeviceItem*, int channel);
-    double computeMaximum(DeviceItem*, int channel);
-    void printData(DeviceItem* deviceItem);
-    void setSampleTime(float sampleTime);
-private:
-    float sampleTime;
-    std::ofstream fileStream;
-    std::map < DeviceItem*, std::vector < std::array < float, 4 > > > data;
-    std::map < DeviceItem*, int > dataCounter;
-    std::map < DeviceItem*, std::array < float, 4 > > minimum;
-    std::map < DeviceItem*, std::array < float, 4 > > maximum;
-    std::map < DeviceItem*, std::array < float, 4 > > sum;
-    void updateMinimum(DeviceItem*, std::array < float, 4 >);
-    void updateMaximum(DeviceItem*, std::array < float, 4 >);
-    void updateSum(DeviceItem*, std::array < float, 4 >);
-    std::array < float, 4 > computeAverage(DeviceItem*);
-    void resetData(DeviceItem*);
-    std::string modifyDateTime(std::string);
-    std::chrono::time_point <std::chrono::system_clock> startTime;
-    std::chrono::time_point <std::chrono::system_clock> lastLog;
-    void createLoggingFolder();
-    std::mutex m_logMutex;
-    int m_threadsNumber = 5;
-    QThreadPool m_threadPool;
-    void doAddBulkData(DeviceItem*, std::vector < std::array < float, 4 > >);
-};
-

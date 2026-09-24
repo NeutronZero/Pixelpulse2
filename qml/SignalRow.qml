@@ -3,37 +3,71 @@ import QtQuick.Layouts 1.0
 import Plot 1.0
 import QtQuick.Controls 1.0
 import QtQuick.Controls.Styles 1.1
-import QtQml 2.2
+import QtQml 2.15
 
 Rectangle {
   id: signalBlock
   property alias ymin: axes.ymin;
   property alias ymax: axes.ymax;
-  property var xaxis
-  property var signal
-  property int ygridticks: axes.ygridticks
+   property var xaxis
+   property var signal
+   property var channel
+   property var device
+   property var channelRow
+   property int deviceIndex: -1
+   property int channelIndex: -1
+   property bool waveMenuOpen: false
+   property double waveMenuHideTime: 0
+   property int ygridticks: axes.ygridticks
   color: '#444'
   property int currentFontSize: 11;
 
-  visible: !(signal.label === "Current" && channel.mode === 0)
+  visible: signal && channel && !(signal.label === "Current" && channel.mode === 0)
 
   property color gradColor: Qt.rgba(1,1,1,0.08)
   property color gradColor2: Qt.rgba(0,0,0,0.0)
 
+  function numericValue(value, fallback) {
+     var parsed;
+     try {
+         parsed = Number.fromLocaleString(value);
+     } catch (error) {
+         parsed = NaN;
+     }
+     if (!isFinite(parsed))
+         parsed = parseFloat(value);
+     return isFinite(parsed) ? parsed : fallback;
+  }
+
   function constrainValue(value, min, max) {
-    if (value < min)
-        value = min;
-    else if (value > max)
-        value = max;
-    return value;
+     if (!isFinite(value))
+         return min;
+     if (value < min)
+         value = min;
+     else if (value > max)
+         value = max;
+     return value;
   }
 
   function updateMode() {
-    channel.mode = {'Voltage': 1, 'Current': 2}[signal.label];
-    var target = parent.parent.parent;
-    for (var sig in target.children)
-        if (target.children[sig].children[0])
-           target.children[sig].children[0].updateMode();
+    if (!channel || !signal)
+      return;
+    channel.mode = {'Voltage': 1, 'Current': 2}[signal.label] || 0;
+    for (var d = 0; d < deviceRepeater.count; d++) {
+      var currentDevice = deviceRepeater.itemAt(d);
+      if (!currentDevice || !currentDevice.channelRepeater)
+        continue;
+      for (var c = 0; c < currentDevice.channelRepeater.count; c++) {
+        var currentChannel = currentDevice.channelRepeater.itemAt(c);
+        if (!currentChannel || !currentChannel.signalRepeater)
+          continue;
+        for (var s = 0; s < currentChannel.signalRepeater.count; s++) {
+          var currentSignal = currentChannel.signalRepeater.itemAt(s);
+          if (currentSignal)
+            currentChannel.applyMode();
+        }
+      }
+    }
   }
 
   function switchToConstant() {
@@ -55,12 +89,13 @@ Rectangle {
   }
 
   Button {
+    id: waveButton
     anchors.top: parent.top
     anchors.left: parent.left
     width: timelinePane.spacing
     height: timelinePane.spacing
 
-    iconSource: 'qrc:/icons/' + signal.src.src + '.png'
+    iconSource: signal && signal.src ? 'qrc:/icons/' + signal.src.src + '.png' : ''
 
     style: ButtonStyle {
       background: Rectangle {
@@ -69,34 +104,57 @@ Rectangle {
       }
     }
 
-    menu: Menu {
-      MenuItem { text: "Constant"
-        onTriggered: signalBlock.switchToConstant()
+    onClicked: {
+      if (Date.now() - waveMenuHideTime < 350) {
+        waveMenuOpen = false
+        return
       }
-      MenuItem { text: "Sine"
-        onTriggered: signalBlock.switchToPeriodic('sine')
+      if (waveMenuOpen) {
+        waveMenuOpen = false
+        waveMenu.__dismissMenu()
+      } else {
+        waveMenuOpen = true
+        waveMenu.__popup(Qt.rect(0, waveButton.height, 0, 0), 0)
       }
-      MenuItem { text: "Triangle"
-        onTriggered: signalBlock.switchToPeriodic('triangle')
-      }
-      MenuItem { text: "Sawtooth"
-        onTriggered: signalBlock.switchToPeriodic('sawtooth')
-      }
-      MenuItem { text: "Stairstep"
-        onTriggered: signalBlock.switchToPeriodic('stairstep')
-      }
-      MenuItem { text: "Square"
-        onTriggered: signalBlock.switchToPeriodic('square')
-      }
+    }
+  }
+
+  Menu {
+    id: waveMenu
+    __visualItem: waveButton
+    __minimumWidth: waveButton.width
+    onAboutToShow: waveMenuOpen = true
+    onAboutToHide: {
+      waveMenuOpen = false
+      waveMenuHideTime = Date.now()
+    }
+
+    MenuItem { text: "Constant"
+      onTriggered: signalBlock.switchToConstant()
+    }
+    MenuItem { text: "Sine"
+      onTriggered: signalBlock.switchToPeriodic('sine')
+    }
+    MenuItem { text: "Triangle"
+      onTriggered: signalBlock.switchToPeriodic('triangle')
+    }
+    MenuItem { text: "Sawtooth"
+      onTriggered: signalBlock.switchToPeriodic('sawtooth')
+    }
+    MenuItem { text: "Stairstep"
+      onTriggered: signalBlock.switchToPeriodic('stairstep')
+    }
+    MenuItem { text: "Square"
+      onTriggered: signalBlock.switchToPeriodic('square')
     }
   }
 
   Text {
     color: 'white'
-    text: signal.label
+    text: signal ? signal.label : ''
     rotation: -90
     transformOrigin: Item.TopLeft
-    font.pixelSize: 18 / session.devices.length
+     font.pixelSize: session.devices.length > 0 ? 18 / session.devices.length : 18
     y: width + timelinePane.spacing + 8
     x: (timelinePane.spacing - height) / 2
   }
@@ -123,28 +181,31 @@ Rectangle {
         // V1
         TextInput {
           id: v1TextBox
-          text: signal.isOutput ? signal.src.v1.toFixed(4) : signal.peak_to_peak.toFixed(4)
+           text: ""
           color: "#FFF"
           selectByMouse: true
           font.pixelSize: currentFontSize
           readOnly: !signal.isOutput
-          property real position: idRectangle.x + idRectangle.width * 10/100;
+           property real position: idRectangle.x + idRectangle.width * 10/100;
+
+           Binding {
+             target: v1TextBox
+             property: "text"
+             value: signal.isOutput ? signal.src.v1.toFixed(4) : signal.peak_to_peak.toFixed(4)
+             restoreMode: Binding.RestoreBindingOrValue
+           }
 
 
-          Binding {
-            target: v1TextBox; property: 'text'
-            value: signal.isOutput ? signal.src.v1.toFixed(4) : signal.peak_to_peak.toFixed(4)
-          }
 
           onEditingFinished: {
             if (readOnly)
               return;
 
-            var value = constrainValue(Number.fromLocaleString(text), axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
+            var value = constrainValue(numericValue(text, signal.src.v1), axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
             text = value.toFixed(4);
-            signal.src.v1 = text;
+            signal.src.v1 = value;
 
-            signalBlock.updateMode() // enough to call it for V1 (not necessary for V2, Freq - not visible when sourcing current anyway)
+            signalBlock.updateMode()
           }
 
           Keys.onPressed: {
@@ -159,32 +220,40 @@ Rectangle {
                 break;
 
               case Qt.Key_Down:
-                  value = Number.fromLocaleString(text) - editWaveform.up_dn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v1) - editWaveform.up_dn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v1 = value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_Up:
-                  value = Number.fromLocaleString(text) + editWaveform.up_dn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v1) + editWaveform.up_dn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v1 = value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_PageDown:
-                  value = Number.fromLocaleString(text) - editWaveform.pgUp_pgDn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v1) - editWaveform.pgUp_pgDn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v1 = value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_PageUp:
-                  value = Number.fromLocaleString(text) + editWaveform.pgUp_pgDn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v1) + editWaveform.pgUp_pgDn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v1 = value;
+                  event.accepted = true;
                   break;
             }
           }
 
-          validator: DoubleValidator{}
+          validator: DoubleValidator {
+            bottom: signal.min - axes.overrangeSpan
+            top: signal.max + axes.overrangeSpan
+            notation: DoubleValidator.StandardNotation
+          }
           anchors.left: parent.left
           anchors.leftMargin: idRectangle.width * 10/100;
         }
@@ -215,24 +284,27 @@ Rectangle {
         TextInput {
           id: v2TextBox
           visible: signal.isOutput ;
-          text: overlay_periodic.visible? signal.src.v2.toFixed(4) : "";
+           text: ""
           color: "#FFF"
           selectByMouse: true
           font.pixelSize: currentFontSize
-          property real position: v1UnitLabel.position + v1UnitLabel.width + idRectangle.width * 10/100
+           property real position: v1UnitLabel.position + v1UnitLabel.width + idRectangle.width * 10/100
 
-          Binding {
-            target: v2TextBox; property: 'text'
-            value: overlay_periodic.visible ? signal.src.v2.toFixed(4) : "";
-          }
+           Binding {
+             target: v2TextBox
+             property: "text"
+             value: overlay_periodic.visible ? signal.src.v2.toFixed(4) : ""
+             restoreMode: Binding.RestoreBindingOrValue
+           }
+
 
           onEditingFinished: {
             if (readOnly)
               return;
 
-            var value = constrainValue(Number.fromLocaleString(text), axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
+            var value = constrainValue(numericValue(text, signal.src.v2), axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
             text = value.toFixed(4);
-            signal.src.v2 = text;
+            signal.src.v2 = value;
           }
 
           Keys.onPressed: {
@@ -243,36 +315,44 @@ Rectangle {
 
             switch (event.key) {
               case Qt.Key_Escape:
-                text = signal.src.v1.toFixed(4);
+                text = signal.src.v2.toFixed(4);
                 break;
 
               case Qt.Key_Down:
-                  value = Number.fromLocaleString(text) - editWaveform.up_dn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v2) - editWaveform.up_dn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v2 = value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_Up:
-                  value = Number.fromLocaleString(text) + editWaveform.up_dn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v2) + editWaveform.up_dn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v2 = value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_PageDown:
-                  value = Number.fromLocaleString(text) - editWaveform.pgUp_pgDn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v2) - editWaveform.pgUp_pgDn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v2 = value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_PageUp:
-                  value = Number.fromLocaleString(text) + editWaveform.pgUp_pgDn_Sensitivity;
+                  value = constrainValue(numericValue(text, signal.src.v2) + editWaveform.pgUp_pgDn_Sensitivity, axes.ymin + axes.overrangeSpan, axes.ymax - axes.overrangeSpan);
                   text = value.toFixed(4);
-                  accepted();
+                  signal.src.v2 = value;
+                  event.accepted = true;
                   break;
             }
           }
 
-          validator: DoubleValidator{}
+          validator: DoubleValidator {
+            bottom: signal.min - axes.overrangeSpan
+            top: signal.max + axes.overrangeSpan
+            notation: DoubleValidator.StandardNotation
+          }
           anchors.left: v1UnitLabel.right
           anchors.leftMargin: idRectangle.width * 10/100
         }
@@ -290,13 +370,21 @@ Rectangle {
         TextInput {
           id: perTextBox
           visible: (perUnitLabel.position + perUnitLabel.width <= idRectangle.x + idRectangle.width) && !(signal.isOutput && signal.src.src === 'constant')
-          text: signal.isOutput ? (signal.src.src != 'constant' ? Math.abs(controller.sampleRate / signal.src.period).toFixed(3) : "") : signal.rms.toFixed(4);
+           text: ""
           color: "#FFF"
           selectByMouse: true
           font.pixelSize: currentFontSize
           readOnly: !signal.isOutput
 
-          property real position: (signal.isOutput ? v2UnitLabel.position + v2UnitLabel.width : v1UnitLabel.position + v1UnitLabel.width) + idRectangle.width * 10/100
+           property real position: (signal.isOutput ? v2UnitLabel.position + v2UnitLabel.width : v1UnitLabel.position + v1UnitLabel.width) + idRectangle.width * 10/100
+
+           Binding {
+             target: perTextBox
+             property: "text"
+             value: signal.isOutput ? (signal.src.src != 'constant' ? Math.abs(controller.sampleRate / signal.src.period).toFixed(3) : "") : signal.rms.toFixed(4)
+             restoreMode: Binding.RestoreBindingOrValue
+           }
+
           property real up_dn_freq_Sensivity: 1
           property real pgUp_pgDn_freq_Sensivity: 100
 
@@ -304,14 +392,10 @@ Rectangle {
             if (readOnly)
               return;
 
-            var value = constrainValue(Number.fromLocaleString(text), controller.minOutSignalFreq, controller.maxOutSignalFreq);
-            text = parseFloat(value).toFixed(3)
-            signal.src.period = controller.sampleRate / text
-          }
-
-          Binding {
-            target: perTextBox; property: 'text';
-            value: signal.isOutput ? (signal.src.src != 'constant' ? Math.abs(controller.sampleRate / signal.src.period).toFixed(3) : ""): signal.rms.toFixed(4);
+            var value = constrainValue(numericValue(text, 0), controller.minOutSignalFreq, controller.maxOutSignalFreq);
+            text = value.toFixed(3)
+            if (value > 0)
+              signal.src.period = controller.sampleRate / value;
           }
 
           Keys.onPressed: {
@@ -322,36 +406,52 @@ Rectangle {
 
             switch (event.key) {
               case Qt.Key_Escape:
-                text = signal.src.v1.toFixed(4);
+                text = signal.isOutput && signal.src.src != 'constant' ? Math.abs(controller.sampleRate / signal.src.period).toFixed(3) : signal.rms.toFixed(4);
                 break;
 
               case Qt.Key_Down:
-                  value = Number.fromLocaleString(text) - up_dn_freq_Sensivity;
-                  text = parseFloat(value).toFixed(3);
-                  accepted();
+                  value = numericValue(text, 0) - up_dn_freq_Sensivity;
+                  value = constrainValue(value, controller.minOutSignalFreq, controller.maxOutSignalFreq);
+                  text = value.toFixed(3);
+                  if (value > 0)
+                    signal.src.period = controller.sampleRate / value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_Up:
-                  value = Number.fromLocaleString(text) + up_dn_freq_Sensivity;
-                  text = parseFloat(value).toFixed(3);
-                  accepted();
+                  value = numericValue(text, 0) + up_dn_freq_Sensivity;
+                  value = constrainValue(value, controller.minOutSignalFreq, controller.maxOutSignalFreq);
+                  text = value.toFixed(3);
+                  if (value > 0)
+                    signal.src.period = controller.sampleRate / value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_PageDown:
-                  value = Number.fromLocaleString(text) - pgUp_pgDn_freq_Sensivity;
-                  text = parseFloat(value).toFixed(3);
-                  accepted();
+                  value = numericValue(text, 0) - pgUp_pgDn_freq_Sensivity;
+                  value = constrainValue(value, controller.minOutSignalFreq, controller.maxOutSignalFreq);
+                  text = value.toFixed(3);
+                  if (value > 0)
+                    signal.src.period = controller.sampleRate / value;
+                  event.accepted = true;
                   break;
 
               case Qt.Key_PageUp:
-                  value = Number.fromLocaleString(text) + pgUp_pgDn_freq_Sensivity;
-                  text = parseFloat(value).toFixed(3);
-                  accepted();
+                  value = numericValue(text, 0) + pgUp_pgDn_freq_Sensivity;
+                  value = constrainValue(value, controller.minOutSignalFreq, controller.maxOutSignalFreq);
+                  text = value.toFixed(3);
+                  if (value > 0)
+                    signal.src.period = controller.sampleRate / value;
+                  event.accepted = true;
                   break;
             }
           }
 
-          validator: DoubleValidator{}
+          validator: DoubleValidator {
+            bottom: controller.minOutSignalFreq
+            top: controller.maxOutSignalFreq
+            notation: DoubleValidator.StandardNotation
+          }
           anchors.left: signal.isOutput ? v2UnitLabel.right : v1UnitLabel.right;
           anchors.leftMargin: idRectangle.width * 10/100
         }
@@ -369,18 +469,20 @@ Rectangle {
         Text {
             id: averageTextBox
             visible: averageLabel.position + averageLabel.width <= idRectangle.x + idRectangle.width;
-            text: signal.isOutput ? "" : signal.mean.toFixed(4);
+             text: ""
             color: "#FFF"
             font.pixelSize: currentFontSize
 
-            property real position: perUnitLabel.position + perUnitLabel.width + idRectangle.width * 10/100
+             property real position: perUnitLabel.position + perUnitLabel.width + idRectangle.width * 10/100
 
-            Binding {
-              target: averageTextBox; property: 'text';
-              value: signal.isOutput ? "" : signal.mean.toFixed(4);
-            }
+             Binding {
+               target: averageTextBox
+               property: "text"
+               value: signal.isOutput ? "" : signal.mean.toFixed(4)
+               restoreMode: Binding.RestoreBindingOrValue
+             }
 
-            anchors.left: perUnitLabel.right
+             anchors.left: perUnitLabel.right
             anchors.leftMargin: idRectangle.width * 10/100
         }
         Text {
@@ -410,27 +512,34 @@ Rectangle {
         TextInput {
           id: maxInput
           visible: maxLabel.visible
-          text: axes.ymax.toFixed(3);
+           text: ""
           color: "#FFF"
           selectByMouse: true
           font.pixelSize: currentFontSize
           readOnly: false;
 
-          property real position: minLabel.position-idRectangle.width*3/100-maxInput.width;
+           property real position: minLabel.position-idRectangle.width*3/100-maxInput.width;
+
+           Binding {
+             target: maxInput
+             property: "text"
+             value: axes.ymax.toFixed(3)
+             restoreMode: Binding.RestoreBindingOrValue
+           }
+
 
           onEditingFinished: {
-            var value = constrainValue(Number.fromLocaleString(text), signal.min-axes.overrangeSpan, signal.max+axes.overrangeSpan)
-            value = Math.max(value,axes.ymin);
-            text = parseFloat(value).toFixed(3)
+            var value = constrainValue(numericValue(text, axes.ymax), signal.min-axes.overrangeSpan, signal.max+axes.overrangeSpan)
+            value = Math.max(value, axes.ymin + Math.max(signal.resolution, 0.000000001));
+            text = value.toFixed(3)
             axes.ymax = value;
           }
 
-          Binding {
-            target: maxInput; property: 'text';
-            value: axes.ymax.toFixed(3);
+          validator: DoubleValidator {
+            bottom: signal.min - axes.overrangeSpan
+            top: signal.max + axes.overrangeSpan
+            notation: DoubleValidator.StandardNotation
           }
-
-          validator: DoubleValidator{}
           anchors.right: minLabel.left;
           anchors.rightMargin: idRectangle.width * 3/100;
         }
@@ -449,27 +558,34 @@ Rectangle {
         TextInput {
           id: minInput
           visible: minLabel.visible;
-          text: axes.ymin.toFixed(3);
+           text: ""
           color: "#FFF"
           selectByMouse: true
           font.pixelSize: currentFontSize
           readOnly: false;
 
-          property real position: parent.width+35-minInput.width;
+           property real position: parent.width+35-minInput.width;
+
+           Binding {
+             target: minInput
+             property: "text"
+             value: axes.ymin.toFixed(3)
+             restoreMode: Binding.RestoreBindingOrValue
+           }
+
 
           onEditingFinished: {
-            var value = constrainValue(Number.fromLocaleString(text), signal.min-axes.overrangeSpan, signal.max+axes.overrangeSpan)
-            value =Math.min(value,axes.ymax);
-            text = parseFloat(value).toFixed(3)
+            var value = constrainValue(numericValue(text, axes.ymin), signal.min-axes.overrangeSpan, signal.max+axes.overrangeSpan)
+            value = Math.min(value, axes.ymax - Math.max(signal.resolution, 0.000000001));
+            text = value.toFixed(3)
             axes.ymin = value;
           }
 
-          Binding {
-            target: minInput; property: 'text';
-            value: axes.ymin.toFixed(3);
+          validator: DoubleValidator {
+            bottom: signal.min - axes.overrangeSpan
+            top: signal.max + axes.overrangeSpan
+            notation: DoubleValidator.StandardNotation
           }
-
-          validator: DoubleValidator{}
           anchors.right: parent.right;
           anchors.rightMargin: -35;
         }
@@ -565,24 +681,35 @@ Rectangle {
       anchors.fill: parent
 
       acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-      property var panStart
+       property var panStart
+       property var floatingZState: []
       onPressed: {
         if (mouse.button == Qt.MiddleButton) {
-          axesBackground.opacity = 0;
-          for(var d = 0; d < deviceRepeater.count; d++) {
+           axesBackground.opacity = 0;
+           floatingZState = [];
+           for(var d = 0; d < deviceRepeater.count; d++) {
             var dev = deviceRepeater.itemAt(d);
+            if (!dev)
+              continue;
+            floatingZState.push({item: dev, z: dev.z});
             dev.z = -2;
-            for(var c = 0; c < channelRepeater.count; c++){
+            for(var c = 0; c < dev.channelRepeater.count; c++){
               var ch = dev.channelRepeater.itemAt(c);
+              if (!ch)
+                continue;
+              floatingZState.push({item: ch, z: ch.z});
               ch.z = -2;
-              for(var s = 0; s < signalRepeater.count; s++){
-                ch.signalRepeater.itemAt(s).z = -2;
+              for(var s = 0; s < ch.signalRepeater.count; s++){
+                var signalItem = ch.signalRepeater.itemAt(s);
+                if (signalItem) {
+                    floatingZState.push({item: signalItem, z: signalItem.z});
+                    signalItem.z = -2;
+                }
               }
             }
           }
-          signalBlock.parent.parent.parent.z = 2;
-          signalBlock.parent.parent.z = 2;
-          signalBlock.z = 2;
+           floatingZState.push({item: signalBlock, z: signalBlock.z});
+           signalBlock.z = 2;
 
           axes.state = "floating"
         } else if (mouse.button == Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier) {
@@ -595,12 +722,23 @@ Rectangle {
           mouse.accepted = false;
         }
       }
-      onReleased: {
-        axesBackground.opacity = 1;
-        axes.state = ""
-        panStart = null
-      }
-      onPositionChanged: {
+       onReleased: {
+         axesBackground.opacity = 1;
+         axes.state = "";
+         for (var i = 0; i < floatingZState.length; i++)
+             floatingZState[i].item.z = floatingZState[i].z;
+         floatingZState = [];
+         panStart = null
+       }
+       onCanceled: {
+         axesBackground.opacity = 1;
+         axes.state = "";
+         for (var i = 0; i < floatingZState.length; i++)
+             floatingZState[i].item.z = floatingZState[i].z;
+         floatingZState = [];
+         panStart = null
+       }
+       onPositionChanged: {
         // Shift + drag for Y-axis pan
         if (panStart) {
           var delta = (mouse.y - panStart.y) / axes.yscale

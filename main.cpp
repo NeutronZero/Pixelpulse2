@@ -1,11 +1,12 @@
 #include <iostream>
 #include <QGuiApplication>
+#include <QCoreApplication>
+#include <QLocale>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QRunnable>
-#include <QThreadPool>
 #include <QIcon>
-#include <QApplication>
+#include <QUrl>
+#include <QtGlobal>
 #include "SMU.h"
 
 #include "utils/fileio.h"
@@ -13,19 +14,29 @@
 
 int main(int argc, char *argv[])
 {
-    // Prevent config being written to ~/.config/Unknown Organization/pixelpulse2.conf
     QCoreApplication::setOrganizationName("ADI");
     QCoreApplication::setApplicationName("Pixelpulse2");
 
     QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedStates));
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
 
     QGuiApplication app(argc, argv);
+
+    if (argc == 2 && (QString::fromLocal8Bit(argv[1]) == QStringLiteral("-v")
+                      || QString::fromLocal8Bit(argv[1]) == QStringLiteral("--version"))) {
+        std::cout << GIT_VERSION << ": Built on " << BUILD_DATE << std::endl;
+        return 0;
+    }
+
+    FileIO fileIO;
+    SessionItem smu_session;
     QQmlApplicationEngine engine;
 
     registerTypes();
 
-    FileIO fileIO;
-    SessionItem smu_session;
     engine.rootContext()->setContextProperty("session", &smu_session);
 
     QVariantMap versions;
@@ -33,21 +44,21 @@ int main(int argc, char *argv[])
     versions.insert("git_version", GIT_VERSION);
     engine.rootContext()->setContextProperty("versions", versions);
     engine.rootContext()->setContextProperty("fileio", &fileIO);
+
+    QUrl qmlUrl = QStringLiteral("qrc:/qml/main.qml");
     if (argc > 1) {
-        if (strcmp(argv[1], "-v") || strcmp(argv[1], "--version")) {
-            std::cout << GIT_VERSION << ": Built on " << BUILD_DATE << std::endl;
-            return 0;
-        }
-        engine.load(argv[1]);
-    } else {
-        engine.load(QUrl(QStringLiteral("qrc:/qml/main.qml")));
+        qmlUrl = QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1]));
+    }
+    engine.addImportPath(QCoreApplication::applicationDirPath() + QStringLiteral("/qml"));
+    engine.load(qmlUrl);
+    if (engine.rootObjects().isEmpty()) {
+        return 1;
     }
 
     app.setWindowIcon(QIcon(":/icons/pp2.ico"));
-    QApplication::setWindowIcon(QIcon(":/icons/pp2.ico"));
 
-    int r = app.exec();
+    int result = app.exec();
     smu_session.closeAllDevices();
 
-    return r;
+    return result;
 }

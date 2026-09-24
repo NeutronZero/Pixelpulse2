@@ -12,6 +12,21 @@ ColumnLayout {
   property bool updateNeeded: false
   property bool justUpdated: false
   property bool firmwareDownloaded: false
+
+  function versionIsOlder(current, latest) {
+      var currentParts = String(current).replace(/^v/, '').split('.');
+      var latestParts = String(latest).replace(/^v/, '').split('.');
+      for (var i = 0; i < 3; i++) {
+          var currentPart = parseInt(currentParts[i] || 0, 10);
+          var latestPart = parseInt(latestParts[i] || 0, 10);
+          if (currentPart < latestPart)
+              return true;
+          if (currentPart > latestPart)
+              return false;
+      }
+      return false;
+  }
+
   function addProgModeDeviceToList()
   {
     devicesModel.insert(devicesModel.count,
@@ -55,8 +70,9 @@ ColumnLayout {
     return ret;
   }
 
-  function deviceManagerListFill() {
-    var showPane = false;
+   function deviceManagerListFill() {
+     var showPane = false;
+     updateNeeded = false;
 
     if (devicesModel.count > 0) {
       var n;
@@ -97,7 +113,7 @@ ColumnLayout {
           updateNeeded = true;
       }
 
-      else if (parseFloat(device.FWVer) < parseFloat(devListView.latestVersion.substring(1))){
+      else if (versionIsOlder(device.FWVer, devListView.latestVersion)){
         updt_needed = true;
           updateNeeded = true;
       }
@@ -224,10 +240,15 @@ ColumnLayout {
         return;
 
       deviceManagerListFill();
-      JSUtils.getFirmwareURL(function(url) {
-        //console.log("LOG URL: ", url);
-        session.downloadFromUrl(url);
-      });
+      if (updateNeeded) {
+          firmwareDownloaded = false;
+          JSUtils.getFirmwareURL(function(url) {
+              session.downloadFromUrl(url);
+          }, function(error) {
+              firmwareDownloaded = false;
+              logOutput.appendMessage("Unable to locate firmware download.");
+          });
+      }
     }
 
     ListModel {
@@ -290,14 +311,30 @@ ColumnLayout {
                 color: 'black'
                 visible: fw_updt_needed === true
 
-                  Text {
-                    x: 5
-                    text: "Update Firmware"
-                    font.pointSize: 10
-                    color: 'steelblue'
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-              }
+                   Text {
+                     x: 5
+                     text: "Update Firmware"
+                     font.pointSize: 10
+                     color: 'steelblue'
+                     anchors.verticalCenter: parent.verticalCenter
+                   }
+                   MouseArea {
+                     anchors.fill: parent
+                     onClicked: {
+                         if (!firmwareDownloaded) {
+                             firmwareDownloaded = false;
+                             JSUtils.getFirmwareURL(function(url) {
+                                 session.downloadFromUrl(url);
+                             }, function() {
+                                 firmwareDownloaded = false;
+                                 logOutput.appendMessage("Unable to locate firmware download.");
+                             });
+                         } else {
+                             logOutput.appendMessage("Firmware is ready. Use Update Firmware when the device is in programming mode.");
+                         }
+                     }
+                   }
+               }
             }
           }
           Item {
@@ -349,9 +386,13 @@ ColumnLayout {
        onDevicesChanged: {
            deviceManagerListFill();
        }
-       onFirmwareDownloaded:{
-           firmwareDownloaded = true;
-       }
+        onFirmwareDownloadFailed: {
+            firmwareDownloaded = false;
+            logOutput.appendMessage("Firmware download failed: " + error);
+        }
+        onFirmwareDownloaded:{
+            firmwareDownloaded = true;
+        }
     }
   }
   Rectangle {
@@ -392,21 +433,30 @@ ColumnLayout {
       MouseArea {
         hoverEnabled: true
         anchors.fill: parent
-        onClicked: {
-            var firmwareFilePath = session.getTmpPathForFirmware() + "/firmware.bin";
-            var ret;
+         onClicked: {
+             if (!firmwareDownloaded)
+                 return;
+             var firmwareDirectory = session.getTmpPathForFirmware();
+             if (firmwareDirectory.length === 0) {
+                 logOutput.appendMessage("Unable to create firmware directory.");
+                 return;
+             }
+             var firmwareFilePath = firmwareDirectory + "/firmware.bin";
+             var ret;
 
             session.closeAllDevices();
-            devicesModel.clear();
-            justUpdated = true;
-            updateNeeded = false;
-            ret = session.flash_firmware(firmwareFilePath);
+             devicesModel.clear();
+             justUpdated = true;
+             ret = session.flash_firmware(firmwareFilePath);
+             session.resumeDeviceScanning();
 
-            if (ret.length === 0) {
-                logOutput.appendMessage("All devices were succesfully updated. Disconnect devices");
-            } else {
-              logOutput.appendMessage(ret);
-            }
+             if (ret.length === 0) {
+                 updateNeeded = false;
+                 logOutput.appendMessage("All devices were succesfully updated. Disconnect devices");
+             } else {
+               updateNeeded = true;
+               logOutput.appendMessage(ret);
+             }
         }
 
         onPressed: updateBtn.color = 'black'

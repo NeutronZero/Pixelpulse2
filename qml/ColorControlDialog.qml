@@ -2,14 +2,13 @@ import QtQuick 2.0
 import QtQuick.Layouts 1.0
 import QtQuick.Controls 1.0
 import QtQuick.Controls.Styles 1.1
-import QtQuick.Dialogs 1.0
 import QtQuick.Dialogs 1.2
 import QtGraphicalEffects 1.0
 
 Dialog {
     title: "Display settings"
     width: 300
-    height: 300
+    height: 340
     modality: Qt.NonModal
     property alias plotCheckBox: plotsCheckBox
     property alias sigCheckBox: signalCheckBox
@@ -27,8 +26,8 @@ Dialog {
             color: '#333'
             anchors.fill: parent
             Layout.preferredWidth: 300
-            Layout.preferredHeight: 300
-            Layout.maximumHeight: 300
+            Layout.preferredHeight: 340
+            Layout.maximumHeight: 340
             Layout.maximumWidth: Layout.preferredWidth
             Layout.minimumHeight: Layout.maximumHeight
             Layout.minimumWidth: Layout.maximumWidth
@@ -76,12 +75,13 @@ Dialog {
                         font.pixelSize: 14
                     }
                 }
-                onClicked: {
-                    sliderContrast.valueHasChanged(plotsCheckBox);
-                    sliderPhosphorRender.valueHasChanged(plotsCheckBox);
-                    sliderDotSize.valueHasChanged(plotsCheckBox);
+                 onClicked: {
+                     toolbar.plotsVisible = plotsCheckBox.checked;
+                     sliderContrast.valueHasChanged(plotsCheckBox);
+                     sliderPhosphorRender.valueHasChanged(plotsCheckBox);
+                     sliderDotSize.valueHasChanged(plotsCheckBox);
 
-                }
+                 }
             }
 
             Text{
@@ -272,8 +272,16 @@ Dialog {
                         window.dotSizeSignal = factor
                     }
                 }
-                style: StyleSlider { }
-                onValueChanged: sliderDotSize.valueHasChanged(sliderDotSize)
+            style: StyleSlider { }
+            onValueChanged: sliderDotSize.valueHasChanged(sliderDotSize)
+            }
+
+            Button {
+                text: "Close"
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 8
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: close()
             }
         }
     }

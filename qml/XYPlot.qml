@@ -23,10 +23,10 @@ Item {
     anchors.topMargin: 42
     anchors.bottomMargin: 32
 
-    xmin: xsignal.min
-    xmax: xsignal.max
-    ymin: ysignal.min
-    ymax: ysignal.max
+    xmin: xsignal ? xsignal.min : 0
+    xmax: xsignal ? xsignal.max : 1
+    ymin: ysignal ? ysignal.min : 0
+    ymax: ysignal ? ysignal.max : 1
     yleft: true
     yright: false
     xbottom: true
@@ -39,6 +39,8 @@ Item {
       }
 
       onWheel: {
+        if (!xsignal || !ysignal)
+          return;
         if (wheel.modifiers & Qt.ShiftModifier) {
           var s = Math.pow(1.15, -wheel.angleDelta.y/120);
           var y = axes.pxToY(wheel.y);
@@ -73,10 +75,10 @@ Item {
         anchors.fill: parent
         clip: true
 
-        xBuffer: xsignal.buffer
-        buffer: ysignal.buffer
-        pointSize: Math.min(25, Math.max(2, axes.xscale/session.sampleRate*3) * window.dotSizePlots * 10)
-        color: ysignal.label == 'Current' ? window.dotPlotsCurrent : window.dotPlotsVoltage //Qt.rgba(0.2, 0.2, 0.03, 1) : Qt.rgba(0.03, 0.3, 0.03, 1)
+        xBuffer: xsignal ? xsignal.buffer : null
+        buffer: ysignal ? ysignal.buffer : null
+        pointSize: session.sampleRate > 0 ? Math.min(25, Math.max(2, axes.xscale/session.sampleRate*3) * window.dotSizePlots * 10) : 2
+        color: ysignal && ysignal.label == 'Current' ? window.dotPlotsCurrent : window.dotPlotsVoltage
         xmin: axes.xmin
         xmax: axes.xmax
         ymin: axes.ymin
@@ -110,12 +112,14 @@ Item {
         onReleased: {
           zoomParams = null;
         }
-        onPositionChanged: {
-          if (zoomParams) {
-            var delta = (mouse.y - zoomParams.prevY)
-            zoomParams.prevY = mouse.y
-            var s = Math.pow(1.01, delta)
-            var y = axes.pxToY((zoomParams.firstY))
+       onPositionChanged: {
+         if (!xsignal || !ysignal)
+           return;
+         if (zoomParams) {
+           var delta = (mouse.y - zoomParams.prevY)
+           zoomParams.prevY = mouse.y
+           var s = Math.pow(1.01, delta)
+           var y = axes.pxToY((zoomParams.firstY))
 
             if (axes.ymax - axes.ymin < ysignal.resolution * ygridticks * 8 && s < 1) return;
 
@@ -135,7 +139,7 @@ Item {
       Text {
         font.pixelSize: 20
         color: '#fff'
-        text: ysignal.label == 'Current' ? '[A]' : '[V]'
+        text: ysignal && ysignal.label == 'Current' ? '[A]' : '[V]'
       }
   }
 
@@ -166,12 +170,14 @@ Item {
         onReleased: {
           zoomParams = null;
         }
-        onPositionChanged: {
-          if (zoomParams) {
-            var delta = -(mouse.x - zoomParams.prevX)
-            zoomParams.prevX = mouse.x
-            var s = Math.pow(1.01, delta)
-            var x = axes.pxToX((zoomParams.firstX))
+       onPositionChanged: {
+         if (!xsignal || !ysignal)
+           return;
+         if (zoomParams) {
+           var delta = -(mouse.x - zoomParams.prevX)
+           zoomParams.prevX = mouse.x
+           var s = Math.pow(1.01, delta)
+           var x = axes.pxToX((zoomParams.firstX))
 
             if (axes.xmax - axes.xmin < xsignal.resolution * xgridticks  && s < 1) return;
 
@@ -191,7 +197,7 @@ Item {
       Text {
         font.pixelSize: 20
         color: '#fff'
-        text: xsignal.label == 'Current' ? '[A]' : '[V]'
+        text: xsignal && xsignal.label == 'Current' ? '[A]' : '[V]'
       }
   }
 }

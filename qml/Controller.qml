@@ -1,20 +1,19 @@
 import QtQuick 2.0
-import "sesssave.js" as StateSave
 
 Item {
-  property bool enabled: session.active
+  property bool sessionActive: session.active
   property bool continuous: false
   property bool repeat: true
   property real sampleRate: session.devices.length ? session.devices[0].DefaultRate : 0
-  property real maxOutSignalFreq: sampleRate / 5 // A period of a signal should contain at least 5 samples
+  property real maxOutSignalFreq: sampleRate > 0 ? sampleRate / 5 : 0
   property real sampleTime: 0.1
-  readonly property int sampleCount: sampleTime * sampleRate + delaySampleCount
+  readonly property int sampleCount: sampleRate > 0 ? Math.min(5000000, Math.max(0, Math.round(sampleTime * sampleRate + delaySampleCount))) : 0
   property bool restartAfterStop: false
   property int delaySampleCount: 0
 
   property bool dlySmplCntChanged: false
   property int queueSize: session.queueSize
-  property real minOutSignalFreq: 1 / (queueSize/sampleRate)
+  property real minOutSignalFreq: sampleRate > 0 && queueSize > 0 ? sampleRate / queueSize : 0
 
 //  function trigger() {
 //    session.sampleRate = sampleRate
@@ -66,11 +65,12 @@ Item {
   function toggle() {
       //console.log("queue size"+queueSize)
       //console.log("min freq"+minOutSignalFreq)
-      if (!session.active) {
-          session.sampleRate = sampleRate
-          session.sampleCount = sampleCount
-          session.sampleTime = sampleTime
-          session.start(continuous);
+       if (!session.active) {
+           applyDelay();
+           session.sampleRate = sampleRate
+           session.sampleCount = sampleCount
+           session.sampleTime = sampleTime
+           session.start(continuous);
       } else {
           session.cancel();
       }
@@ -102,23 +102,26 @@ Item {
 //  }
 
   onContinuousChanged: {
-    // Restart the session so the new sampling mode takes effect
-    //restartAfterStop = true;
-    //session.cancel();
-    //console.log("onContinuousChanged",continuous);
-    ////console.log("session cont",session.
-    //session.restart();
+    toolbar.acqusitionDialog.onContinuousModeChanged(continuous);
     if(session.active){
         session.cancel();
         session.start(continuous);
-        toolbar.acqusitionDialog.onContinuousModeChanged(continuous);
     }
   }
 
-//  onDelaySampleCountChanged: {
-//      dlySmplCntChanged = true;
-//  }
+  function applyDelay() {
+      for (var i = 0; i < session.devices.length; i++) {
+          for (var j = 0; j < session.devices[i].channels.length; j++) {
+              var signals = session.devices[i].channels[j].signals;
+              for (var k = 0; k < signals.length; k++)
+                  signals[k].buffer.setIgnoredFirstSamplesCount(delaySampleCount);
+          }
+      }
+  }
 
+  onDelaySampleCountChanged: {
+      applyDelay();
+  }
 //  Connections {
 //    target: session
 
