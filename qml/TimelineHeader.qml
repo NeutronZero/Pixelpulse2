@@ -15,9 +15,9 @@ Rectangle {
 
   property var xaxis
   property real min_spacing: 70
-  property real pow: Math.floor(Math.log(min_spacing * 100 / xaxis.xscale) / Math.LN10)
+  property real pow: xaxis.xscale > 0 ? Math.floor(Math.log(min_spacing * 100 / xaxis.xscale) / Math.LN10) : 0
   property real majorStep: Math.pow(10, pow)
-  property real step: majorStep / 10
+  property real step: majorStep > 0 ? majorStep / 10 : 0.000000001
   property real start: Math.floor(xaxis.visibleMin / step)
 
   property real unitPow: (pow - 2) % 3 + 1
@@ -83,11 +83,14 @@ Rectangle {
     }
     onPositionChanged: {
       if (zoomParams) {
-        var delta = (mouse.x - zoomParams.prevX)
-        zoomParams.prevX = mouse.x
-        var s = Math.pow(1.005, delta)
-        var oldScale = xaxis.xscale
-        var minScale = xaxis.timelineflickable.width/(xaxis.boundMax - xaxis.boundMin)
+         var delta = (mouse.x - zoomParams.prevX)
+         zoomParams.prevX = mouse.x
+         var span = xaxis.boundMax - xaxis.boundMin;
+         if (span <= 0)
+             return;
+         var s = Math.pow(1.005, delta)
+         var oldScale = xaxis.xscale
+         var minScale = xaxis.timelineflickable.width/span
         xaxis.xscale = Math.min(Math.max(xaxis.xscale*s, minScale), xaxis.maxScale)
 
         xaxis.timelineflickable.contentX = (xaxis.xscale / oldScale) * (xaxis.timelineflickable.contentX + zoomParams.firstX) - zoomParams.firstX

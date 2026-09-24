@@ -1,41 +1,51 @@
-// basic csv serialisation function
-// accepts a list of lists representing the columns of data, and a list of text labels
-var dumpSamples = function (columns, labels) {
-   if (columns.length != labels.length) {
-      throw("label length mismatches number of columns");
-   }
-   var lengths = columns.map(function(x) {return x.length;})
-   var csvContent = '';
-   for (var i = 0; i < labels.length; i++) {
-       csvContent += labels[i] + ((i != (labels.length-1)) ? "," : "");
-   }
-   csvContent += "\n";
-   var minimumLength = Math.min.apply(null, lengths);
-   for (var i = 0; i < minimumLength; i++) {
-       for (var j = 0; j < columns.length; j++) {
-            var x = columns[j][i].toFixed(4);
-            x = (x == 0) ? (0.00001).toFixed(4) : x;
-            csvContent += (x >= 0 ? "+" : "") + x + ((j != (columns.length-1)) ? "," : "");
-        }
-        csvContent += (i != (minimumLength-1) ? "\n" : "");
+var csvEscape = function(value) {
+    var text = '' + value;
+    if (/[",\r\n]/.test(text)) {
+        return '"' + text.replace(/"/g, '""') + '"';
     }
-   return csvContent
-}
-
-var saveData = function (target) {
-    var labels = [];
-    var columns = [];
-    if (session.devices.length) {
-        for (var i = 0; i < session.devices.length; i++) {
-            for (var j = 0; j < session.devices[i].channels.length; j++) {
-                for (var k = 0; k < session.devices[i].channels[i].signals.length; k++) {
-                    var label = '' + i + session.devices[i].channels[j].label +"_"+ session.devices[i].channels[j].signals[k].label;
-                    labels.push(label);
-                    columns.push(session.devices[i].channels[j].signals[k].buffer.getData());
-                };
-            };
-        };
-    fileio.writeByURI(target, dumpSamples(columns, labels));
-    };
+    return text;
 };
 
+var dumpSamples = function(columns, labels) {
+    if (columns.length !== labels.length) {
+        throw new Error("label length mismatches number of columns");
+    }
+    if (columns.length === 0) {
+        return "";
+    }
+
+    var lengths = columns.map(function(column) { return column.length; });
+    var minimumLength = Math.min.apply(null, lengths);
+    var csvContent = labels.map(csvEscape).join(",") + "\n";
+    for (var i = 0; i < minimumLength; i++) {
+        var row = [];
+        for (var j = 0; j < columns.length; j++) {
+            var value = Number(columns[j][i]);
+            row.push(isFinite(value) ? value.toFixed(4) : "");
+        }
+        csvContent += row.join(",") + "\n";
+    }
+    return csvContent;
+};
+
+var saveData = function(target) {
+    var labels = [];
+    var columns = [];
+    if (!session.devices.length) {
+        return false;
+    }
+
+    for (var i = 0; i < session.devices.length; i++) {
+        var device = session.devices[i];
+        for (var j = 0; j < device.channels.length; j++) {
+            var channel = device.channels[j];
+            for (var k = 0; k < channel.signals.length; k++) {
+                var signal = channel.signals[k];
+                labels.push(i + channel.label + "_" + signal.label);
+                columns.push(signal.buffer.getData());
+            }
+        }
+    }
+
+    return fileio.writeByURI(target, dumpSamples(columns, labels));
+};

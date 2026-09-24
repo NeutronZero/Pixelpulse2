@@ -16,6 +16,10 @@ ColumnLayout {
     height: toolbarHeight
   }
 
+  property string latestText: ""
+  property string debugText: ""
+  property color outputColor: "#fff"
+
   TextArea {
     id: outField
     readOnly: true
@@ -26,9 +30,12 @@ ColumnLayout {
     selectByKeyboard: true
     selectByMouse: true
     backgroundVisible: false
-	text: "Built: " + versions.build_date + "    " + "Version: " + versions.git_version + JSUtils.checkLatest(outField);
+    text: "Built: " + versions.build_date + "    " + "Version: " + versions.git_version + "\n" + latestText + debugText
+    Component.onCompleted: {
+      JSUtils.checkLatest(function(text) { latestText = text; }, function() {});
+    }
     style: TextAreaStyle {
-        textColor: "#fff"
+        textColor: cLayout.outputColor
         selectionColor: "steelblue"
         selectedTextColor: "#eee"
         backgroundColor: "#eee"
@@ -44,16 +51,16 @@ ColumnLayout {
 	text: "type here."
 	color: "#FFF"
     onAccepted: {
-    // wow, javascript.
     var out;
     try {
-      out = JSUtils.toJSON(eval(text), 5, 10, "  ");
-      outField.textColor = "#fff";
+      out = JSUtils.toJSON(JSON.parse(text), 5, 10, "  ");
+      cLayout.outputColor = "#fff";
+      cLayout.debugText = "\n" + out;
     } catch (e) {
       out = e.message;
-      outField.textColor = "#f77";
+      cLayout.outputColor = "#f77";
     };
-    outField.text = out;
+    cLayout.debugText = "\n" + out;
     }
 	selectByMouse: true
   }

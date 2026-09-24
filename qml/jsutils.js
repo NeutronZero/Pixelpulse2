@@ -16,11 +16,17 @@ var HTTP_REQUEST_OK = 200
 
 var GIT_RATE_LIMIT_EXCEEDED = 777
 
-var request = function (url, callback) {
+var request = function (url, callback, fail_callback) {
     var xhr = new XMLHttpRequest();
     xhr.onreadystatechange = (function(myxhr) {
         return function() {
-             if(myxhr.readyState === 4) callback(myxhr)
+             if(myxhr.readyState === 4) {
+                 if (myxhr.status >= 200 && myxhr.status < 300) {
+                     callback(myxhr);
+                 } else if (fail_callback) {
+                     fail_callback(myxhr.status || 0);
+                 }
+             }
 	    }
     })(xhr);
     xhr.open('GET', url, true);
@@ -29,113 +35,95 @@ var request = function (url, callback) {
 
 var checkRateLimitExceeded = function (callback, fail_callback) {
     request("https://api.github.com/rate_limit", function(t) {
-        if (t.status === HTTP_REQUEST_OK) {
+        try {
             var d = JSON.parse(t.responseText);
-
             if (d.resources.core.remaining > 0) {
                 callback();
-            } else {
-                if (fail_callback)
+            } else if (fail_callback) {
                 fail_callback(GIT_RATE_LIMIT_EXCEEDED);
             }
-        } else {
+        } catch (error) {
             if (fail_callback)
-            fail_callback(t.status);
+                fail_callback(0);
         }
-    });
+    }, fail_callback);
 }
 
-var checkLatest = function (target) {
-    var text;
-    checkRateLimitExceeded( function() {
+var checkLatest = function (callback, fail_callback) {
+    checkRateLimitExceeded(function() {
         request("https://api.github.com/repos/analogdevicesinc/pixelpulse2/releases", function(t) {
-            var d = JSON.parse(t.responseText)[0];
-            text = "The most recent release is " + d.tag_name + ", published at " + (new Date(d.published_at)).toString() + "." + '\n\n' + "It is available for download at " + d.html_url + ".";
-            target.text += text;
-        });
-    });
-
-    return '\n\n\n';
+            try {
+                var releases = JSON.parse(t.responseText);
+                if (!releases.length || !releases[0].tag_name) {
+                    if (fail_callback)
+                        fail_callback(0);
+                    return;
+                }
+                var d = releases[0];
+                callback("The most recent release is " + d.tag_name + ", published at "
+                         + (new Date(d.published_at)).toString() + ".\n\n"
+                         + "It is available for download at " + d.html_url + ".");
+            } catch (error) {
+                if (fail_callback)
+                    fail_callback(0);
+            }
+        }, fail_callback);
+    }, fail_callback);
 }
 
 var checkLatestFw = function (callback, fail_callback) {
-    checkRateLimitExceeded( function() {
-        var text;
+    checkRateLimitExceeded(function() {
         request("https://api.github.com/repos/analogdevicesinc/m1k-fw/releases", function(t) {
-            var d = JSON.parse(t.responseText)[0];
-            callback(d.tag_name);
-        });
-    },
-    fail_callback
-    );
-
-    return '\n\n\n';
+            try {
+                var releases = JSON.parse(t.responseText);
+                if (!releases.length || !releases[0].tag_name) {
+                    if (fail_callback)
+                        fail_callback(0);
+                    return;
+                }
+                callback(releases[0].tag_name);
+            } catch (error) {
+                if (fail_callback)
+                    fail_callback(0);
+            }
+        }, fail_callback);
+    }, fail_callback);
 }
 
-var requestFile = function(url, callback) {
-    var xhr = new XMLHttpRequest();
+var requestFile = function(url, callback, fail_callback) {
+    request(url, callback, fail_callback);
+};
 
-    xhr.onloadstart = (function(myxhr) {
-        return function() {
-            //console.log('LOG: onloadstart: ', myxhr.status);
+var getFirmwareURL = function(callback, fail_callback) {
+    var releaseURL = 'https://api.github.com/repos/analogdevicesinc/m1k-fw/releases';
+    request(releaseURL, function(t) {
+        try {
+            var releases = JSON.parse(t.responseText);
+            if (!releases.length || !releases[0].id) {
+                if (fail_callback)
+                    fail_callback(0);
+                return;
+            }
+            var releaseAssetURL = releaseURL + '/' + releases[0].id + '/assets';
+            request(releaseAssetURL, function(t) {
+                try {
+                    var assets = JSON.parse(t.responseText);
+                    if (!assets.length || !assets[0].browser_download_url) {
+                        if (fail_callback)
+                            fail_callback(0);
+                        return;
+                    }
+                    callback(assets[0].browser_download_url);
+                } catch (error) {
+                    if (fail_callback)
+                        fail_callback(0);
+                }
+            }, fail_callback);
+        } catch (error) {
+            if (fail_callback)
+                fail_callback(0);
         }
-    })(xhr);
-    xhr.onprogress = (function(myxhr) {
-        return function() {
-            //console.log('LOG: progress: ', myxhr.status);
-        }
-    })(xhr);
-    xhr.onerror = (function(myxhr) {
-        return function() {
-            //console.log('LOG: error: ', myxhr.status);
-        }
-    })(xhr);
-    xhr.ontimeout = (function(myxhr) {
-        return function() {
-            //console.log('LOG: timeout: ', myxhr.status);
-        }
-    })(xhr);
-    xhr.onloadend = (function(myxhr) {
-        return function() {
-            //console.log('LOG: onloadend: ', myxhr.status);
-        }
-    })(xhr);
-    xhr.onreadystatechange = (function(myxhr) {
-        return function() {
-            if(myxhr) //console.log('LOG: status ready: ', myxhr.readyState);//if(myxhr.readyState === 4)
-            if(myxhr.readyState === 4 && myxhr.status  === 200) callback(myxhr)
-	    }
-    })(xhr);
-
-    xhr.onload = (function(myxhr) {
-        return function() {
-            //console.log('LOG: status load: ', myxhr.status);
-             if(myxhr.status  === 200) callback(myxhr)
-	    }
-    })(xhr);
-    xhr.open('GET', url, true);
-	//xhr.responseType = "arraybuffer";
-    xhr.send('');
-}
-
-var getFirmwareURL = function(callback) {
-	var releaseURL = 'https://api.github.com/repos/analogdevicesinc/m1k-fw/releases';
-
-	request(releaseURL, function(t) {
-        var d = JSON.parse(t.responseText)[0];
-        var id = d.id;
-		var releaseAssetURL = releaseURL + '/' + id + '/assets';
-
-		request(releaseAssetURL, function(t) {
-			var d = JSON.parse(t.responseText)[0];
-            var fileDownloadURL = d.browser_download_url;
-
-			request(fileDownloadURL, function(t) {
-				var header = t.getResponseHeader('Location');
-                callback(header);
-			});
-		});
-	});
+    }, fail_callback);
 };
 
 var toJSON = function(object, objectMaxDepth, arrayMaxLength, indent)
@@ -198,11 +186,11 @@ var toJSON = function(object, objectMaxDepth, arrayMaxLength, indent)
             case typeof(function(){}): 
             case "object":
                 {
-                    /*if (!value)
-                        return "null";*/
+                    if (value === null || value === undefined)
+                        return "null";
                     var valueIndex = values.indexOf(value);
                     if (valueIndex !== -1)
-                        return "Reference => " + paths[valueIndex];
+                        return "null";
                     values.push(value);
                     paths.push(path);
                     if (depth > objectMaxDepth)
@@ -213,7 +201,7 @@ var toJSON = function(object, objectMaxDepth, arrayMaxLength, indent)
 
                     // Is the value an array?
                     var i;
-                    if (value.length)
+                    if (Object.prototype.toString.call(value) === "[object Array]")
                     {
                         // The value is an array. Stringify every element
                         var length = Math.min(value.length, arrayMaxLength);
@@ -238,7 +226,9 @@ var toJSON = function(object, objectMaxDepth, arrayMaxLength, indent)
                     // Otherwise, iterate through all of the keys in the object.
                     for (var subKey in value)
                     {
-                        if (Object.prototype.hasOwnProperty.call(value, subKey) & (subKey != "parent") & (typeof(value[subKey] != "function")))
+                        if (Object.prototype.hasOwnProperty.call(value, subKey)
+                                && subKey !== "parent"
+                                && typeof value[subKey] !== "function")
                         {
                             var subValue;
                             try
@@ -255,10 +245,6 @@ var toJSON = function(object, objectMaxDepth, arrayMaxLength, indent)
                                 else
                                     subKey = "access denied";
                             }
-                        }
-                        if (typeof(value[subKey] != "function"))
-                        {
-                            partial.push(quote(subKey) +": "+ value[subKey].toString());
                         }
                     }
                     var result = "\n" + cumulativeIndent + "{\n";

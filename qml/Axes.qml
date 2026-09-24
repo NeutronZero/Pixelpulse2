@@ -25,15 +25,15 @@ Item {
   property var textSize: 14
 
   function step(min, max, count) {
-    // Inspired by d3.js
     var span = max - min;
+    if (!isFinite(span) || span <= 0 || count <= 0)
+      return 1;
     var step = Math.pow(10, Math.floor(Math.log(span / count) / Math.LN10));
     var err = count / span * step;
 
-	  // Filter ticks to get closer to the desired count.
-	       if (err <= .35) step *= 10
-	  else if (err <= .75) step *= 5
-	  else if (err <= 1.0) step *= 2
+    if (err <= .35) step *= 10
+    else if (err <= .75) step *= 5
+    else if (err <= 1.0) step *= 2
 
     return step
   }
@@ -44,14 +44,17 @@ Item {
   property real ystep: step(ymin, ymax, ygridticks)
   property real ystart: Math.ceil(ymin / ystep)
 
-  property real yscale: height / (ymax - ymin)
+  property real yscale: height / Math.max(ymax - ymin, 0.000000001)
   function yToPx(y) { return height - (y - ymin) * yscale }
   function yToPxClamped(y) { return Math.min(Math.max(yToPx(y), 0), height) }
   function pxToY(px) { return (height - px) / yscale + ymin }
   function pxToX(px) { return px / xscale + xmin }
-  function snapx(x) { return Math.round(x / (timeline_header.step/(1/controller.sampleRate))) * (timeline_header.step/(1/controller.sampleRate)) }
-  function snapy(y) { return Math.round(y / ystep)*ystep }
-  property real xscale: width / (xmax - xmin)
+  function snapx(x) {
+    var interval = timeline_header.step * Math.max(controller.sampleRate, 1);
+    return interval > 0 ? Math.round(x / interval) * interval : x;
+  }
+  function snapy(y) { return Math.round(y / Math.max(ystep, 0.000000001))*ystep }
+  property real xscale: width / Math.max(xmax - xmin, 0.000000001)
   function xToPx(x) { return (x - xmin) * xscale }
 
 

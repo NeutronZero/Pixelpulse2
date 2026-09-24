@@ -5,6 +5,7 @@ import QtQuick.Controls 1.0
 import QtQuick.Controls.Styles 1.1
 
 Window {
+  id: acquisitionSettings
   title: "Acquisition Settings"
   minimumWidth: 400
   minimumHeight: 180
@@ -109,6 +110,15 @@ Window {
                 }
         }
       } // Checkbox
+
+      RowLayout {
+        Layout.alignment: Qt.AlignRight
+
+        Button {
+          text: "Close"
+          onClicked: acquisitionSettings.close()
+        }
+      }
     } // ColumnLayout
   } // Rectangle
 } // Window

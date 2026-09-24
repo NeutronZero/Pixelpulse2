@@ -32,17 +32,15 @@ To build from source on any platform, you need to install a C++ compiler toolcha
 If you have not built packages from source before, this is ill-advised.
 *  **Build and install libsmu (https://github.com/analogdevicesinc/libsmu)**. 
 Libsmu is a library wich contains abstractions for streaming data to and from USB-connected analog interface devices, currently supporting the Analog Devices' ADALM1000. 
-* Install Qt5. We recommend using a version greater than or equal to 5.14.
+* Install Qt5.15 LTS. Qt 6 is not required for this build.
  * On most Linux Distributions, Qt5 is available in repositories. The complete list of packages required varies, but includes qt's support for declarative (qml) UI programming, qtquick, qtquick-window, qtquick-controls, and qtquick-layouts.
 
 To build / run on a generic POSIX platform
 
     git clone https://github.com/analogdevicesinc/Pixelpulse2
     cd Pixelpulse2
-    mkdir build
-    cd build
-    cmake ..
-    make
+    cmake -S . -B build -G Ninja
+    cmake --build build
 
 On Windows the process is similar. Write the following commands in a cmd console
 
@@ -50,15 +48,14 @@ On Windows the process is similar. Write the following commands in a cmd console
 	cd Pixelpulse2
 	mkdir build
 	cd build
-    cmake -DLIBSMU_LIBRARY="path_to_libsmu_dll" -DLIBSMU_INCLUDE_PATH="path_to_libsmu_include_folder" -DLIBUSB_INCLUDE_DIRS="path_to_libusb_include_folder" ..
-	make
+    cmake -DLIBSMU_LIBRARIES="path_to_libsmu_library" -DLIBSMU_INCLUDE_DIRS="path_to_libsmu_include_folder" -DLIBUSB_LIBRARIES="path_to_libusb_library" -DLIBUSB_INCLUDE_DIRS="path_to_libusb_include_folder" ..
+	cmake --build .
 
 After it is finished building, you have to copy the libsmu shared library into the build folder and Pixelpulse2 should be ready to use with your M1K
 
 To build / run on Ubuntu
 
- * Please note that you make encounter issues if you are running a version of Ubuntu lower than 15.04, because the version of QT in the repositories will likely be less than 5.4 (this also applies if you are running a Linux distribution that uses an older version of Ubuntu, for example Linux Mint 17.1, which uses Ubuntu 14.04.)
- * The build process is tested and supported on Ubuntu 16, 18 and 20.
+ * The build process is tested with Qt 5.15 on current Ubuntu LTS releases.
 
 * Get ready
 
@@ -71,7 +68,7 @@ To build / run on Ubuntu
 * Install Qt5 and some Qt modules
 
     ```bash
-    sudo apt-get install -y qt5-default qtdeclarative5-dev qml-module-qtquick-dialogs qml-module-qt-labs-settings qml-module-qt-labs-folderlistmodel qml-module-qtqml-models2 qml-module-qtquick-controls
+    sudo apt-get install -y cmake ninja-build qtbase5-dev qtdeclarative5-dev libqt5svg5-dev libqt5opengl5-dev qml-module-qtquick-dialogs qml-module-qtgraphicaleffects qml-module-qtquick-controls qml-module-qtquick-layouts qml-module-qtquick-window2 qml-module-qtqml-models2 libusb-1.0-0-dev
     ```
 
 * Make a new folder, clone the pixelpulse library into it from git, and build it!
@@ -81,10 +78,8 @@ To build / run on Ubuntu
     cd development
     git clone https://github.com/analogdevicesinc/Pixelpulse2
     cd pixelpulse2
-    mkdir build
-    cd build
-    cmake ..
-    make
+    cmake -S . -B build -G Ninja
+    cmake --build build
     ```
 
  * Make sure your M1K is plugged into your computer.  The onboard LED should light up when it is connected.  You can double-check by typing ```lsusb```.  You should see something along the lines of ```ID 064b:784c Analog Devices, Inc. (White Mountain DSP)```

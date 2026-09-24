@@ -1,9 +1,4 @@
-if(MSVC)
-	# needed for CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS support
-	cmake_minimum_required(VERSION 3.4)
-else()
-	cmake_minimum_required(VERSION 2.8.7)
-endif()
+cmake_minimum_required(VERSION 3.18)
 project(pixelpulse2 CXX C)
 
 # libsmu versioning
@@ -34,15 +29,18 @@ if(IS_DIRECTORY ${CMAKE_SOURCE_DIR}/.git)
 	endif()
 endif()
 
-# Set .exe properties
 if (WIN32)
 	string(REPLACE "." "," PP_FILEVERSION ${PP_VERSION})
-	set(PP_PRODUCTVERSION_STR ${PP_VERSION})
+	set(PP_FILEVERSION "${PP_FILEVERSION},0")
+	set(PP_PRODUCTVERSION_STR ${PP_VERSION_STR})
 	string(TIMESTAMP BUILD_YEAR "%Y")
 endif()
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 if (NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING
@@ -54,15 +52,13 @@ endif()
 # write version info to file -- used for CI artifact versioning
 file(WRITE ${CMAKE_BINARY_DIR}/.version ${PP_VERSION_STR})
 
-find_package(Qt5Core REQUIRED)
-find_package(Qt5Sql REQUIRED)
-find_package(Qt5Widgets REQUIRED)
-find_package(Qt5Quick REQUIRED)
-find_package(Qt5Network REQUIRED)
-find_package(Qt5Qml REQUIRED)
+find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Widgets Quick Network Qml OpenGL)
+if(APPLE)
+	find_package(Qt5Svg REQUIRED)
+endif()
 
 string(TIMESTAMP BUILD_DATE "%Y/%m/%d")
-set(GIT_VERSION ${PP_GIT_REV})
+set(GIT_VERSION ${PP_VERSION_STR})
 configure_file(config.h.cmakein ${CMAKE_BINARY_DIR}/config.h @ONLY)
 configure_file(pixelpulse2.iss.cmakein ${CMAKE_CURRENT_BINARY_DIR}/pixelpulse2.iss @ONLY)
 
@@ -72,15 +68,15 @@ if(NOT WIN32)
 	pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
 	link_directories(${LINK_DIRECTORIES} ${LIBUSB_LIBRARY_DIRS})
 else()
-	find_library(LIBUSB_LIBRARIES usb-1.0)
-	find_path(LIBUSB_INCLUDE_DIRS libusb.h)
+	find_library(LIBUSB_LIBRARIES NAMES usb-1.0 REQUIRED)
+	find_path(LIBUSB_INCLUDE_DIRS NAMES libusb.h REQUIRED)
 endif()
 
-find_library(LIBSMU_LIBRARIES NAMES smu libsmu)
-find_path(LIBSMU_INCLUDE_DIRS libsmu/libsmu.hpp)
+find_library(LIBSMU_LIBRARIES NAMES smu libsmu REQUIRED)
+find_path(LIBSMU_INCLUDE_DIRS NAMES libsmu/libsmu.hpp REQUIRED)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++11")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic")
 endif()
 
 # don't complain about extra format args for g++
@@ -215,6 +211,7 @@ target_link_libraries(${PROJECT_NAME} LINK_PRIVATE
 		${Qt5Network_LIBRARIES}
 		${Qt5Core_LIBRARIES}
 		${Qt5Gui_LIBRARIES}
+		${Qt5OpenGL_LIBRARIES}
 )
 
 

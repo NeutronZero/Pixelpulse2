@@ -2,7 +2,6 @@ import QtQuick 2.1
 import QtQuick.Layouts 1.0
 import QtQuick.Controls 1.0
 import QtQuick.Controls.Styles 1.1
-import QtQuick.Dialogs 1.0
 import QtQuick.Dialogs 1.2
 import QtGraphicalEffects 1.0
 import "dataexport.js" as CSVExport
@@ -19,6 +18,8 @@ ToolbarStyle {
   property alias deviceMngrVisible: deviceMngrVisibleItem.checked
   property alias colorDialog: sessColorDialog
   property alias acqusitionDialog: sessAcqSettDialog
+  property bool gearMenuOpen: false
+  property double gearMenuHideTime: 0
 
   AcquisitionSettingsDialog {
     id: sessAcqSettDialog
@@ -29,21 +30,33 @@ ToolbarStyle {
     selectExisting: false
     title: "Please enter a location to save your data."
     nameFilters: [ "CSV files (*.csv)", "All files (*)" ]
-    onAccepted: { CSVExport.saveData(dataDialog.fileUrls[0]);}
+    onAccepted: { if (dataDialog.fileUrls.length > 0) CSVExport.saveData(dataDialog.fileUrls[0]); }
   }
   FileDialog {
     id: sessSaveDialog
     selectExisting: false
     title: "Please enter a location to save your session."
     nameFilters: [ "JSON files (*.json)", "All files (*)" ]
-    onAccepted: { fileio.writeByURI(sessSaveDialog.fileUrls[0], JSON.stringify(StateSave.saveState(), 0, 2));}
+    onAccepted: { if (sessSaveDialog.fileUrls.length > 0) fileio.writeByURI(sessSaveDialog.fileUrls[0], JSON.stringify(StateSave.saveState(), 0, 2)); }
   }
   FileDialog {
     id: sessRestoreDialog
     selectExisting: true
     title: "Please select a session to restore."
     nameFilters: [ "JSON files (*.json)", "All files (*)" ]
-    onAccepted: { StateSave.restoreState(JSON.parse(fileio.readByURI(sessRestoreDialog.fileUrls[0])));}
+    onAccepted: {
+        if (sessRestoreDialog.fileUrls.length === 0)
+            return;
+        try {
+            var data = fileio.readByURI(sessRestoreDialog.fileUrls[0]);
+            if (data.length > 0) {
+                if (!StateSave.restoreState(JSON.parse(data)))
+                    console.warn("No matching signal state was restored");
+            }
+        } catch (error) {
+            console.warn("Unable to restore session", error);
+        }
+    }
   }
 
   ColorControlDialog {
@@ -51,11 +64,36 @@ ToolbarStyle {
   }
 
   Button {
+    id: gearButton
     tooltip: "Menu"
     Layout.fillHeight: true
     style: btnStyle
+    iconSource: 'qrc:/icons/gear.png'
 
-    menu: Menu {
+    onClicked: {
+      if (Date.now() - gearMenuHideTime < 350) {
+        gearMenuOpen = false
+        return
+      }
+      if (gearMenuOpen) {
+        gearMenuOpen = false
+        gearMenu.__dismissMenu()
+      } else {
+        gearMenuOpen = true
+        gearMenu.__popup(Qt.rect(0, gearButton.height, 0, 0), 0)
+      }
+    }
+  }
+
+  Menu {
+    id: gearMenu
+    __visualItem: gearButton
+    __minimumWidth: gearButton.width
+    onAboutToShow: gearMenuOpen = true
+    onAboutToHide: {
+      gearMenuOpen = false
+      gearMenuHideTime = Date.now()
+    }
 
       MenuItem {
           id: repeatedSweepItem
@@ -80,9 +118,9 @@ ToolbarStyle {
           id: dataLoggingItem
           text: "Data logging"
           checkable: true
-          checked: false
-          enabled: controller.sampleTime == 0.1 || controller.sampleTime == 0.01 ? false : true
-          onTriggered: session.onLoggingChanged()
+           checked: session.logging === 1
+           enabled: session.logging === 1 || (controller.sampleTime !== 0.1 && controller.sampleTime !== 0.01)
+          onTriggered: session.toggleLogging()
       }
 
       MenuItem {
@@ -104,15 +142,16 @@ ToolbarStyle {
       }
 
       MenuSeparator{}
-      MenuItem {
-        id: acquisVisibleItem
-        text: "Acqusition Settings"
-        onTriggered: sessAcqSettDialog.visible = true
-      }
+       MenuItem {
+         id: acquisVisibleItem
+         text: "Acqusition Settings"
+         onTriggered: sessAcqSettDialog.visible = !sessAcqSettDialog.visible
+       }
       MenuItem {
         id: dataSaveVisibleItem
-        text: "Export Data"
-        onTriggered: dataDialog.visible = true
+         text: "Export Data"
+         enabled: session.devices.length > 0
+         onTriggered: dataDialog.visible = true
       }
       MenuItem {
         id: sessionSaveVisibleItem
@@ -124,16 +163,14 @@ ToolbarStyle {
         text: "Restore Session"
         onTriggered: sessRestoreDialog.visible = true
       }
-      MenuItem {
-        id: colorControlVisibleItem
-        text: "Display Settings"
-        onTriggered: sessColorDialog.visible = true
-      }
+       MenuItem {
+         id: colorControlVisibleItem
+         text: "Display Settings"
+         onTriggered: sessColorDialog.visible = !sessColorDialog.visible
+       }
 
       MenuSeparator{}
       MenuItem { text: "Exit"; onTriggered: Qt.quit() }
-    }
-    iconSource: 'qrc:/icons/gear.png'
   }
 
   Button {
@@ -141,7 +178,7 @@ ToolbarStyle {
     Layout.fillHeight: true
     Layout.alignment: Qt.AlignRight
     style: btnStyle
-    iconSource: (controller.enabled & (session.availableDevices > 0)) ? 'qrc:/icons/pause.png' : 'qrc:/icons/play.png'
+    iconSource: (controller.sessionActive && (session.availableDevices > 0)) ? 'qrc:/icons/pause.png' : 'qrc:/icons/play.png'
 
     onClicked: {
       if (session.availableDevices > 0) {

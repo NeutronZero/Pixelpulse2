@@ -3,17 +3,19 @@ import QtQuick.Window 2.0
 import QtQuick.Layouts 1.0
 
 Rectangle {
+  id: deviceRow
   property var device
+  property int deviceIndex: currentIndex
   property alias channelRepeater: channelRepeater
   property var currentIndex
   color: '#222'
 
   Text {
-    text: device.label
+    text: device ? device.label : ""
     color: 'white'
     rotation: -90
     transformOrigin: Item.TopLeft
-    font.pixelSize: 18/session.devices.length
+    font.pixelSize: session.devices.length > 0 ? 18/session.devices.length : 18
     y: width + timelinePane.spacing + 8
     x: (timelinePane.spacing - height) / 2
   }
@@ -21,7 +23,8 @@ Rectangle {
   MouseArea {
       anchors.fill: parent
       onClicked: {
-          session.devices[currentIndex].blinkLeds()
+          if (currentIndex >= 0 && currentIndex < session.devices.length)
+              session.devices[currentIndex].blinkLeds()
       }
   }
 
@@ -39,6 +42,9 @@ Rectangle {
         Layout.fillHeight: true
 
         channel: model
+        device: deviceRow.device
+        deviceIndex: deviceRow.deviceIndex
+        channelIndex: index
       }
     }
   }

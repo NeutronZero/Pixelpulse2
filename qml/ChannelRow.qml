@@ -7,10 +7,30 @@ import QtQuick.Controls.Styles 1.1
 Rectangle {
   id: channelBlock
   property var channel
-  property alias signalRepeater:signalRepeater
+  property var device
+  property int deviceIndex: -1
+  property int channelIndex: -1
+  property alias signalRepeater: signalRepeater
+  property bool modeMenuOpen: false
+  property double modeMenuHideTime: 0
   color: '#333'
 
+  function applyMode() {
+    if (!channel || deviceIndex < 0 || channelIndex < 0)
+      return;
+    var deviceRepeaterItem = xyPane.devRep.itemAt(deviceIndex);
+    if (!deviceRepeaterItem)
+      return;
+    var xyPlot = deviceRepeaterItem.itemAt(channelIndex);
+    if (!xyPlot)
+      return;
+
+    xyPlot.ysignal = (channel.mode == 1) ? xyPlot.isignal : xyPlot.vsignal;
+    xyPlot.xsignal = (channel.mode == 1) ? xyPlot.vsignal : xyPlot.isignal;
+  }
+
   Button {
+    id: modeButton
     anchors.top: parent.top
     anchors.left: parent.left
     width: timelinePane.spacing
@@ -21,7 +41,7 @@ Rectangle {
       'svmi',
       'simv',
     ]
-    iconSource: 'qrc:/icons/' + icons[channel.mode] + '.png'
+    iconSource: channel ? 'qrc:/icons/' + icons[channel.mode] + '.png' : ''
 
     style: ButtonStyle {
       background: Rectangle {
@@ -30,35 +50,53 @@ Rectangle {
       }
     }
 
-    function updateMode() {
-      var chIdx = {A: 0, B: 1}[channel.label];
-      var devIdx = parent.parent.parent.currentIndex * 2;
-      var xyPlot = xyPane.devRep.itemAt(parent.parent.parent.currentIndex).itemAt(chIdx);
-
-      xyPlot.ysignal = (channel.mode == 1) ? xyPlot.isignal : xyPlot.vsignal;
-      xyPlot.xsignal = (channel.mode == 1) ? xyPlot.vsignal : xyPlot.isignal;
-    }
-
-    menu: Menu {
-      MenuItem { text: "Measure Voltage"
-        onTriggered: channel.mode = 0
+    onClicked: {
+      if (Date.now() - modeMenuHideTime < 350) {
+        modeMenuOpen = false
+        return
       }
-      MenuItem { text: "Source Voltage, Measure Current"
-        onTriggered: channel.mode = 1
-      }
-      MenuItem { text: "Source Current, Measure Voltage"
-        onTriggered: channel.mode = 2
+      if (modeMenuOpen) {
+        modeMenuOpen = false
+        modeMenu.__dismissMenu()
+      } else {
+        modeMenuOpen = true
+        modeMenu.__popup(Qt.rect(0, modeButton.height, 0, 0), 0)
       }
     }
   }
 
+  Menu {
+    id: modeMenu
+    __visualItem: modeButton
+    __minimumWidth: modeButton.width
+    onAboutToShow: modeMenuOpen = true
+    onAboutToHide: {
+      modeMenuOpen = false
+      modeMenuHideTime = Date.now()
+    }
+
+    MenuItem { text: "Measure Voltage"
+      onTriggered: channel.mode = 0
+    }
+    MenuItem { text: "Source Voltage, Measure Current"
+      onTriggered: channel.mode = 1
+    }
+    MenuItem { text: "Source Current, Measure Voltage"
+      onTriggered: channel.mode = 2
+    }
+  }
+
+  Connections {
+    target: channel
+    onModeChanged: channelBlock.applyMode()
+  }
 
   Text {
-    text: "Channel " + channel.label
+    text: "Channel " + (channel ? channel.label : "")
     color: 'white'
     rotation: -90
     transformOrigin: Item.TopLeft
-    font.pixelSize: 18 / session.devices.length
+    font.pixelSize: session.devices.length > 0 ? 18 / session.devices.length : 18
     y: width + timelinePane.spacing + 8
     x: (timelinePane.spacing - height) / 2
   }
@@ -78,6 +116,11 @@ Rectangle {
         Layout.minimumHeight: channelBlock.height / 2
 
         signal: model
+        channel: channelBlock.channel
+        device: channelBlock.device
+        channelRow: channelBlock
+        deviceIndex: channelBlock.deviceIndex
+        channelIndex: channelBlock.channelIndex
         xaxis: timeline_xaxis
       }
     }
