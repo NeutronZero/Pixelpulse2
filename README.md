@@ -1,8 +1,6 @@
 ## Pixelpulse2
 
-[![Windows Status](https://ci.appveyor.com/api/projects/status/32r7s2skrgm9ubva?svg=true)](https://ci.appveyor.com/project/analogdevicesinc/pixelpulse2/branch/master)
-[![OSX Status](https://api.travis-ci.org/analogdevicesinc/Pixelpulse2.svg?branch=master&label=OSX)](https://travis-ci.org/analogdevicesinc/Pixelpulse2)
-[![License](https://img.shields.io/badge/license-MPL-blue.svg)](https://github.com/analogdevicesinc/Pixelpulse2/blob/master/LICENSE)
+[![License](https://img.shields.io/badge/license-MPL-blue.svg)](LICENSE)
 
 Pixelpulse is a powerful user interface for visualizing and manipulating signals while exploring systems attached to affordable analog interface devices, such as Analog Devices' ADALM1000.
 
@@ -10,7 +8,7 @@ Fully cross-platform using the Qt5 graphics toolkit and OpenGL accelerated densi
 
 Intuitive click-and-drag interfaces make exploring system behaviors across a wide range of signal amplitudes, frequencies, or phases a trivial exercise. Just click once to source a constant voltage or current and see what happens. Choose a function (sawtooth, triangle, sinusoidal, square) - adjust parameters, and make waves.
 
-Zoom in and out  with your scroll wheel or multitouch gestures (on supported platforms). Hold "Shift" to for Y-axis zooming.
+Zoom in and out with your scroll wheel or multitouch gestures (on supported platforms). Hold "Shift" for Y-axis zooming.
 
 Click and drag the X axis to pan in time.
 
@@ -18,79 +16,109 @@ Click and drag the X axis to pan in time.
 
 ![Screenshot of PP2 on Windows 7](https://analogdevicesinc.github.io/Pixelpulse2/pp2screenshot.png "Pixelpulse on Windows 7")
 
+### Requirements
+
+* C++17 compiler, CMake 3.18 or newer, Ninja (recommended)
+* Qt 5.15 LTS (Qt 6 is not required for this build)
+* libsmu (https://github.com/analogdevicesinc/libsmu), which itself needs libusb and Boost headers
+* libusb development files
+
 ### Getting Pixelpulse2
 
 #### Easy
 
-* OSX - Navigate to the [releases](https://github.com/analogdevicesinc/pixelpulse2/releases) and collect the latest `pixelpulse2-<OS-version>.dmg` package, specific for you OS version.
-* Windows - For a testing build, download the dependency package and the latest binary build from [appveyor](https://ci.appveyor.com/project/analogdevicesinc/pixelpulse2/build/artifacts). For an official release build, navigate to releases and collect the latest pixelpulse2-setup.exe.
-* Linux - Build from source (below) 
-#### Advanced
+* Windows - install the WinUSB driver for the M1K (see below), then run a built `pixelpulse2.exe` with its deployed Qt DLLs next to it.
+* Linux - build from source (below).
 
-To build from source on any platform, you need to install a C++ compiler toolchain, collect the build dependencies, setup your build environment, and compile the project.
+#### Windows driver
 
-If you have not built packages from source before, this is ill-advised.
-*  **Build and install libsmu (https://github.com/analogdevicesinc/libsmu)**. 
-Libsmu is a library wich contains abstractions for streaming data to and from USB-connected analog interface devices, currently supporting the Analog Devices' ADALM1000. 
-* Install Qt5.15 LTS. Qt 6 is not required for this build.
- * On most Linux Distributions, Qt5 is available in repositories. The complete list of packages required varies, but includes qt's support for declarative (qml) UI programming, qtquick, qtquick-window, qtquick-controls, and qtquick-layouts.
+The ADALM1000 must be bound to the WinUSB driver. The easiest way is
+[Zadig](https://zadig.akeo.ie/): select the `ADALM1000` device and install
+the WinUSB driver for it. Without this, the device cannot be opened
+(`Access is denied`) by either Pixelpulse2 or the `smu` command line tool.
 
-To build / run on a generic POSIX platform
+Do not run two libsmu-based programs against the same device at the same
+time; the second one will fail to open the already-claimed device.
 
-    git clone https://github.com/analogdevicesinc/Pixelpulse2
-    cd Pixelpulse2
-    cmake -S . -B build -G Ninja
-    cmake --build build
+### Building from source
 
-On Windows the process is similar. Write the following commands in a cmd console
+#### Windows (MSYS2 MinGW 64-bit, tested)
 
-	git clone https://github.com/analogdevicesinc/Pixelpulse2
-	cd Pixelpulse2
-	mkdir build
-	cd build
-    cmake -DLIBSMU_LIBRARIES="path_to_libsmu_library" -DLIBSMU_INCLUDE_DIRS="path_to_libsmu_include_folder" -DLIBUSB_LIBRARIES="path_to_libusb_library" -DLIBUSB_INCLUDE_DIRS="path_to_libusb_include_folder" ..
-	cmake --build .
+In an MSYS2 shell:
 
-After it is finished building, you have to copy the libsmu shared library into the build folder and Pixelpulse2 should be ready to use with your M1K
+```bash
+pacman -S --noconfirm mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake \
+  mingw-w64-x86_64-ninja mingw-w64-x86_64-qt5-base \
+  mingw-w64-x86_64-qt5-declarative mingw-w64-x86_64-qt5-quickcontrols \
+  mingw-w64-x86_64-qt5-graphicaleffects mingw-w64-x86_64-qt5-svg \
+  mingw-w64-x86_64-qt5-tools mingw-w64-x86_64-libusb mingw-w64-x86_64-boost
+```
 
-To build / run on Ubuntu
+Build and install libsmu first (its own CMake scripts target an older
+toolchain, so pass the minimum policy version and explicit libusb paths):
 
- * The build process is tested with Qt 5.15 on current Ubuntu LTS releases.
+```bash
+git clone https://github.com/analogdevicesinc/libsmu.git
+cmake -S libsmu -B libsmu-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/mingw64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DLIBUSB_LIBRARIES=/mingw64/lib/libusb-1.0.dll.a \
+  -DLIBUSB_INCLUDE_DIRS=/mingw64/include/libusb-1.0 \
+  -DBUILD_PYTHON=OFF -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF
+cmake --build libsmu-build
+cmake --install libsmu-build
+```
 
-* Get ready
+Then build Pixelpulse2:
+
+```bash
+git clone https://github.com/NeutronZero/Pixelpulse2
+cd Pixelpulse2
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DLIBSMU_LIBRARIES=/mingw64/lib/libsmu.dll.a \
+  -DLIBSMU_INCLUDE_DIRS=/mingw64/include \
+  -DLIBUSB_LIBRARIES=/mingw64/lib/libusb-1.0.dll.a \
+  -DLIBUSB_INCLUDE_DIRS=/mingw64/include/libusb-1.0
+cmake --build build
+```
+
+Deploy the Qt runtime next to the executable (from an MSYS2 shell, with
+`qml` being this repository's `qml` directory):
+
+```bash
+mkdir -p dist
+cp build/pixelpulse2.exe dist/
+cp /mingw64/bin/libsmu.dll /mingw64/bin/libusb-1.0.dll dist/
+windeployqt-qt5 --dir dist --qmldir qml build/pixelpulse2.exe
+```
+
+Copy the `platforms` plugin, the `qml` import tree, and the compiler
+runtime DLLs reported by `ldd build/pixelpulse2.exe` into `dist/`, then
+run `dist/pixelpulse2.exe`.
+
+#### Ubuntu
+
+```bash
+sudo apt-get update
+sudo apt-get install -y cmake ninja-build qtbase5-dev qtdeclarative5-dev \
+  libqt5svg5-dev libqt5opengl5-dev qml-module-qtquick-dialogs \
+  qml-module-qtgraphicaleffects qml-module-qtquick-controls \
+  qml-module-qtquick-layouts qml-module-qtquick-window2 \
+  qml-module-qtqml-models2 libusb-1.0-0-dev libboost-dev
+```
+
+Build and install libsmu (https://github.com/analogdevicesinc/libsmu),
+then:
+
+```bash
+git clone https://github.com/NeutronZero/Pixelpulse2
+cd Pixelpulse2
+cmake -S . -B build -G Ninja
+cmake --build build
+```
+
+* Make sure your M1K is plugged into your computer. The onboard LED should light up when it is connected. You can double-check by typing ```lsusb```. You should see something along the lines of ```ID 064b:784c Analog Devices, Inc. (White Mountain DSP)```
+* Run Pixelpulse2 from the build directory:
 
     ```bash
-    sudo apt-get update
-    ```
-
-* Build and install libsmu (https://github.com/analogdevicesinc/libsmu)
-
-* Install Qt5 and some Qt modules
-
-    ```bash
-    sudo apt-get install -y cmake ninja-build qtbase5-dev qtdeclarative5-dev libqt5svg5-dev libqt5opengl5-dev qml-module-qtquick-dialogs qml-module-qtgraphicaleffects qml-module-qtquick-controls qml-module-qtquick-layouts qml-module-qtquick-window2 qml-module-qtqml-models2 libusb-1.0-0-dev
-    ```
-
-* Make a new folder, clone the pixelpulse library into it from git, and build it!
-
-    ```bash
-    mkdir development
-    cd development
-    git clone https://github.com/analogdevicesinc/Pixelpulse2
-    cd pixelpulse2
-    cmake -S . -B build -G Ninja
-    cmake --build build
-    ```
-
- * Make sure your M1K is plugged into your computer.  The onboard LED should light up when it is connected.  You can double-check by typing ```lsusb```.  You should see something along the lines of ```ID 064b:784c Analog Devices, Inc. (White Mountain DSP)```
- * You should be ready to launch Pixelpulse2. First, go to the directory it was built in:
-    
-    ```bash
-    cd ~/development/pixelpulse2/build
-    ```
-
- * Run Pixelpulse2
-
-    ```bash
-    ./pixelpulse2
+    ./build/pixelpulse2
     ```
