@@ -115,7 +115,7 @@ void FloatBuffer::append_samples(const std::vector<std::array<float, 4>>& sample
         m_length = std::min(m_length, m_data.size());
         count = std::min(samples.size(), m_data.size() - m_length);
         for (size_t i = 0; i < count; ++i) {
-            m_data.push_back(samples[i][static_cast<size_t>(signal_index)]);
+            m_data[m_length + i] = samples[i][static_cast<size_t>(signal_index)];
         }
         m_length += count;
     }
