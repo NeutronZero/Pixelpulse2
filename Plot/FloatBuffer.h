@@ -52,7 +52,7 @@ signals:
 public slots:
     QObject* getObject()
     {
-        return new FloatBuffer();
+        return this;
     }
 
 private:
